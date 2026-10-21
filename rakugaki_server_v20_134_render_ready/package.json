@@ -1,0 +1,14 @@
+{
+  "name": "rakugaki-server",
+  "version": "1.0.0",
+  "description": "らくがきブロック フェーズ2 WebSocketサーバー",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}
