@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><title>らくがきブロック（サーバー版 v20.134）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<link rel="stylesheet" href="style.css?v=20.134"><link rel="stylesheet" href="telephone.css?v=20.134"></head><body>
+<div id="lobby"><div class="card">
+<h1>らくがきブロック</h1>
+<p>ブロックの世界の壁や地面に、みんなで絵を描こう。<br><small>みんな同じ世界に入ります</small></p>
+<input id="nm" maxlength="12" placeholder="なまえ（必須）">
+<input id="jpw" type="password" maxlength="40" placeholder="入場パスワード（必要な場合）" autocomplete="off">
+<button id="mk">はじめる</button>
+<p id="st"></p></div><div id="versionTag" aria-label="バージョン">Ver. 20.134</div></div>
+<div id="hud" style="display:none">
+<div id="topic" style="display:none"></div><div id="info"></div><div id="cross"></div>
+<div id="authorTip" style="display:none;position:fixed;left:50%;top:58%;transform:translate(-50%,0);padding:5px 12px;background:rgba(0,0,0,.75);color:#fff;border-radius:6px;font-size:13px;pointer-events:none;z-index:5;text-shadow:0 1px 2px #000"></div>
+<div id="hint">クリックで操作開始（Escで設定）</div><div id="interactPrompt" hidden aria-live="off"><span id="interactPromptKey">F</span><span id="interactPromptAction"></span></div><div id="phoneStationHint" aria-live="polite"></div><div id="forestResidentHint" aria-live="polite"></div><div id="forestResidentSpeech" class="forest-resident-speech" hidden aria-live="off"></div><div id="wiseCharacterHint" aria-live="polite"></div><div id="wiseCharacterSpeech" class="wise-character-speech" hidden aria-live="off"></div><div id="creatureSpeech" class="creature-speech" hidden aria-live="off"></div><div id="horrorCallPrompt" class="horror-call-prompt" hidden><span class="horror-call-icon" aria-hidden="true">☎</span><span class="horror-call-label">着信中</span><button type="button" id="horrorCallAnswer">受話</button><button type="button" id="horrorCallMute" aria-pressed="false">消音</button></div>
+<div id="tc"><div id="stick"><div id="knob"></div></div>
+<div id="bJump" class="tb">ジャンプ</div><div id="bCrouch" class="tb">しゃがむ</div><div id="bAct" class="tb">描く</div><div id="bDel" class="tb">消す</div>
+<div id="bLook" class="tb" title="押しながらドラッグで視点を回す">視点↕</div>
+<div id="bMenu" class="tb tb2">⚙</div><div id="bChat" class="tb tb2">💬</div><div id="bEmo" class="tb tb2">😀</div><div id="bView" class="tb tb2">👁</div><div id="bShot" class="tb tb2">📷</div></div>
+<div id="emo"><button>👋 手を振る</button><button>🎉 喜ぶ</button><button>🙂 うなずく</button><button>💗 ハート</button><button>💃 ダンス</button></div>
+<button id="pm"></button><input type="color" id="cp" style="position:fixed;left:-99px;opacity:0;width:1px;height:1px"><div id="toast"></div><div id="horrorFx" class="horror-fx" aria-hidden="true"><div class="horror-vignette"></div><div class="horror-breath"></div></div><div id="uw" aria-hidden="true"></div><div id="szPrev"></div>
+<div id="disc" style="display:none;position:fixed;left:50%;top:20%;transform:translateX(-50%);z-index:30;background:#b00020;color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;text-align:center;pointer-events:auto;max-width:90vw;box-shadow:0 4px 20px #0006"><div id="discMsg">接続が切れました</div><button id="discRe" style="margin-top:8px;padding:8px 16px;font:inherit;font-weight:bold;border:0;border-radius:6px;background:#fff;color:#b00020;cursor:pointer">再接続</button></div>
+<div id="pal"></div>
+<div id="chat"><div id="log"></div>
+<div id="chatHist" style="display:none">
+<div class="ch-head"><span>チャット履歴</span><button type="button" id="chatHistClose" class="ch-x">×</button></div>
+<div id="chatHistBox"></div>
+</div>
+<input id="in" maxlength="60" placeholder="チャット（Enterで送信／空で閉じる）"></div>
+<div id="bar"></div></div>
+<div id="phoneModal" role="dialog" aria-modal="true" aria-labelledby="phoneTitle" style="display:none">
+<div id="phoneCard"><div id="phoneHeader"><h2 id="phoneTitle">☎ テレフォンゲーム</h2><div class="phone-header-actions"><button id="phoneMemoryShortcut" type="button" aria-label="テレフォンゲームの思い出帳">📚 思い出帳</button><button id="phoneClose" type="button" aria-label="閉じる">×</button></div></div>
+<div id="phoneStatus">ワールドの参加者と遊ぶミニゲーム</div><div id="phoneError" role="status"></div><div id="phoneBody"></div></div></div>
+<div id="szPanel"><label>太さ <span id="szVal">1</span></label><input id="szRange" type="range" min="1" max="8" step="1" value="1"><div class="szlab"><span>細</span><span>太</span></div></div>
+<div id="menu"><div class="card" id="mc">
+<h1 id="mTitle">設定</h1>
+<p>ペンの描き方</p>
+<div class="row"><button id="mAim">照準（画面中央）</button><button id="mCur">カーソル（ペン位置）</button></div>
+<p id="mHelp"></p>
+<p>筆圧（ペンタブ）</p>
+<div class="row"><button id="mPOn">オン</button><button id="mPOff">オフ</button></div>
+<p>視点の感度　<span id="sv"></span></p>
+<input id="sens" type="range" min="0.3" max="2" step="0.1">
+<p>音量　<span id="vv"></span></p><input id="vol" type="range" min="0" max="1" step="0.05">
+<div class="row"><button id="mBon">BGM オン</button><button id="mBoff">オフ</button></div>
+<div class="row"><button id="mSave" class="sub">世界を保存</button><button id="mLoad" class="sub">世界を読み込み</button><button id="mShot" class="sub">📷 撮影</button></div>
+<input id="wf" type="file" accept=".rakugaki" style="display:none">
+<p>参加者</p>
+<div id="plist"></div>
+<p>ミニゲーム</p>
+<button id="phoneOpen" type="button" class="sub phone-menu-launch" title="テレフォンゲーム">☎ テレフォンゲーム</button>
+<button id="mGuide" class="sub">操作ガイド</button>
+<div id="admAuth" style="display:none;flex-direction:column;gap:8px">
+<p>管理者合言葉</p>
+<div class="row"><input id="pw" type="password" placeholder="合言葉を入力" maxlength="40" autocomplete="off" style="flex:1;min-width:0;pointer-events:auto"><button type="button" id="mAuth" class="sub" style="pointer-events:auto;flex:0 0 auto">認証</button></div>
+</div>
+<div id="adm" style="display:none;flex-direction:column;gap:8px">
+<p>管理者メニュー</p>
+<p class="adm-sec">お題</p>
+<div class="row"><button type="button" id="mTopic" class="sub">次のお題</button><button type="button" id="mTopicOn" class="sub">お題 ON</button></div>
+<p class="adm-sec">権限</p>
+<div class="row"><button type="button" id="aBlk">ブロック: 許可</button><button type="button" id="aPen">落書き: 許可</button></div>
+<p class="adm-sec">ワールド</p>
+<div class="row"><button type="button" id="aPaint" class="sub">落書きを全消去</button></div>
+<p class="adm-hint">世界を生成（落書きも消えます）</p>
+<div class="row"><button type="button" id="aWorldNature" class="sub">自然</button><button type="button" id="aWorldPaper" class="sub">紙とインク</button><button type="button" id="aWorldToy" class="sub">おもちゃ箱</button></div>
+<p class="adm-sec">怪異イベント</p>
+<div class="row"><button id="mHorror" type="button" class="sub">👁 世界の異変: オフ</button></div>
+<p class="horror-setting-note">管理者がオンにすると全参加者に有効になります。異変は約20〜35秒後に開始し、その後は約1.5〜3分おきに発生します。電話の着信は電話端末の近くにいる参加者から1人だけを選びます。</p>
+<details class="horror-test-tools"><summary>怪異演出を今すぐ試す（管理者専用）</summary>
+<p class="horror-setting-note">テストは管理者本人の画面だけに表示され、他の参加者には送信されません。異変がオフでも個別に試せます。</p>
+<div class="row"><button id="mHorrorTestFootsteps" type="button" class="sub">背後の足音</button><button id="mHorrorTestWhisper" type="button" class="sub">囁き</button><button id="mHorrorTestPhone" type="button" class="sub">着信・受話</button><button id="mHorrorTestCreatureVoice" type="button" class="sub">ひょっこりんの鳴き声テスト</button></div>
+</details>
+<p class="adm-sec">自然災害</p>
+<div class="row"><button id="mDisaster" type="button" class="sub">🌦 自然災害: オン</button></div>
+<p class="horror-setting-note">有効にすると全員の画面で共有イベントが発生します。初回は約15〜24秒後、その後は約1.5〜2.5分おき。ブロックや落書きは壊しません。</p>
+<details class="disaster-test-tools"><summary>自然災害を今すぐ試す（管理者専用）</summary>
+<p class="horror-setting-note">テストは管理者本人の画面だけに表示されます。自動発生設定がオフでも試せます。</p>
+<div class="row"><button id="mDisasterTestStorm" type="button" class="sub">雷雨・暴風雨</button><button id="mDisasterTestShower" type="button" class="sub">流星群</button><button id="mDisasterTestImpact" type="button" class="sub">隕石落下</button><button id="mDisasterTestBlizzard" type="button" class="sub">吹雪</button></div>
+</details>
+<p class="adm-sec">不思議イベント（天候とは独立）</p>
+<div class="row"><button id="mKesaran" type="button" class="sub">ケサランパサラン: オン</button></div>
+<p class="horror-setting-note">ケサランパサランが大量発生する共有イベントです。天候イベントとは別のタイマーで発生し、雷雨・吹雪などと同時に続きます。ワールドや落書きは変更しません。</p>
+<details class="disaster-test-tools"><summary>ケサランパサラン大量発生を今すぐ試す（管理者専用）</summary>
+<p class="horror-setting-note">テストは管理者本人の画面だけに表示されます。自動イベント設定がオフでも試せます。</p>
+<div class="row"><button id="mKesaranTest" type="button" class="sub">ケサランパサラン大量発生</button></div>
+</details>
+<p class="adm-sec">参加者の管理</p>
+<div id="kl"></div>
+</div>
+<div class="row" style="align-items:center"><label style="flex:1">自分の色 <input type="color" id="myColPick" style="width:48px;height:32px;padding:0;border:1px solid #ccd;border-radius:6px;cursor:pointer;background:#fff"></label></div>
+<button id="mAv" class="sub">アバターを描く</button>
+<button type="button" id="mLeave" class="sub m-leave">退室する</button>
+<button id="mBack">ゲームに戻る</button>
+</div>
+<div class="card" id="guide" style="display:none;width:min(420px,94vw)">
+<h1>操作ガイド</h1>
+<h2>共通</h2>
+<ul>
+<li>壁や地面を狙って絵を描きます</li>
+<li>右のパレットで<strong>色</strong>と<strong>太さ（1〜8）</strong></li>
+<li>下の<strong>9枠</strong>（8ブロック＋ペン）: <strong>クリック</strong>で選択 / <strong>もう一度クリック</strong>か<strong>E</strong>で入れ替え（タッチは<strong>長押し</strong>）</li>
+<li>ブロックは押しっぱなしで<strong>連続置き</strong>（2個目以降は同じ一直線のみ・約0.2秒ごと）。壊すとき、<strong>落書きがあるブロックだけ長押し</strong>（ゲージ表示）。無地はすぐ壊せる</li>
+<li>お題があるときは、それをテーマに描いてみましょう</li>
+</ul>
+<h2>パソコン</h2>
+<ul>
+<li><strong>WASD</strong> 移動　<strong>Space</strong> ジャンプ　<strong>C</strong> しゃがみ　<strong>W×2</strong> ダッシュ</li>
+<li>画面クリックで視点ロック（Escで設定）</li>
+<li>ペン: 左で描く / 右で消す　ブロック: 左で置く / 右で壊す（<strong>絵があるときだけ長押し</strong>）</li>
+<li>カーソル描き: 右ドラッグで視点　<strong>X</strong> 描き方　<strong>Z</strong> 太さ　<strong>V</strong> 視点切替</li>
+<li><strong>Fキー</strong>で近くのポストンに話しかけて、ひらめき便を受け取ります。電話端末を狙っているときはFキーまたは右クリックでテレフォンゲームを開きます。<strong>Tキー</strong>や設定メニューからも開けます。</li>
+<li><strong>Enter</strong> チャット　<strong>B</strong> エモート</li>
+</ul>
+<h2>スマートフォン</h2>
+<ul>
+<li>左スティックで移動。ポストンに近づくと「使う」ボタンが「話す」に変わります。</li>
+<li>マップ中央の電話ゲーム端末に照準を合わせ、「使う」をタップ</li>
+<li>⚙ 設定メニューやPCのTキーからも開けます</li>
+<li><strong>描く</strong>押しながらスワイプ → 描く　<strong>消す</strong>押しながら → 消す</li>
+<li>ブロック時の<strong>壊す</strong>は無地ならすぐ壊れる。落書き付きは押し続けてゲージが満タンで壊れる</li>
+<li><strong>視点</strong>ボタンを<strong>押しながらドラッグ</strong>でカメラ回転（点灯中が操作中）</li>
+<li>2本指ドラッグでも視点可。枠の<strong>長押し</strong>でブロック入れ替え</li>
+</ul>
+<button id="gBack" class="sub">設定に戻る</button>
+</div>
+<div class="card" id="edc" style="display:none;width:min(560px,96vw)">
+<h1>アバターを描く</h1>
+<div class="row"><div><p>顔</p><canvas id="cvF" width="16" height="16"></canvas></div><div><p>服（胴体・正方形）</p><canvas id="cvB" width="16" height="16" aria-label="胴体の服模様（正方形キャンバス）"></canvas></div><div><p>見た目（ドラッグで回転）</p><div id="cvP" role="img" aria-label="3Dアバタープレビュー"></div></div></div>
+<div class="row" id="edBodyModeRow" style="gap:12px;flex-wrap:wrap;font-size:13px">
+<label style="cursor:pointer"><input type="radio" name="edBodyMode" value="front" checked> 前面のみ</label>
+<label style="cursor:pointer"><input type="radio" name="edBodyMode" value="both"> 前面と背面の両方</label>
+<label style="cursor:pointer"><input type="radio" name="edBodyMode" value="back"> 背面のみ</label>
+</div>
+<p style="margin:0;font-size:12px;color:#666">服キャンバスは胴体に合わせた16×16の正方形です。選択中の面に描き、「両方」は同じ絵を表裏にコピーします。</p>
+<div id="edpal"></div>
+<div class="row"><label>頭部パーツ <select id="headPart"><option value="0">なし（アクセサリーなし）</option><option value="1">布帽子</option><option value="2">葉っぱ飾り</option><option value="3">きのこ帽子</option><option value="4">猫の被り物（猫フード）</option><option value="5">郵便帽子</option><option value="6">パンダの被り物</option></select></label><label>手足の色 <input type="color" id="limbC"></label></div>
+<div class="row"><button id="edUndo" class="sub">元に戻す</button><button id="edPlus" class="sub">＋色</button><button id="edOk">保存して戻る</button></div>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="game.js?v=20.134"></script><script src="phone-game.js?v=20.134"></script></body></html>

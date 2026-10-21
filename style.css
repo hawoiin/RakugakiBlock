@@ -1,0 +1,415 @@
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#bfe3f2;font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;color:#222}
+canvas{display:block;touch-action:none}
+#hud{position:fixed;inset:0;pointer-events:none}
+#cross{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid #fff;border-radius:50%;mix-blend-mode:difference}
+#bar{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;max-width:min(96vw,720px);position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:6px;pointer-events:auto}
+.slot{min-width:36px;padding:0 4px;font-size:11px;min-width:52px;height:46px;padding:0 6px;border:3px solid #fff7;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;background:#0005;color:#fff;text-shadow:0 0 3px #000;cursor:pointer}
+.slot{position:relative}
+.slot.on{border-color:#fff;box-shadow:0 0 0 2px #222}
+/* 選択中の枠の上に逆三角 */
+.slot.on::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:-12px;
+  transform:translateX(-50%);
+  width:0;height:0;
+  border-left:8px solid transparent;
+  border-right:8px solid transparent;
+  border-top:10px solid #ffe082;
+  filter:drop-shadow(0 0 1px #000) drop-shadow(0 1px 2px #000a);
+  pointer-events:none;
+  z-index:2;
+}
+#pal{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:grid;grid-template-columns:repeat(3,28px);gap:4px;pointer-events:auto}
+.sw{width:28px;height:28px;border:2px solid #fff8;border-radius:4px;cursor:pointer}
+.sw.tl{display:flex;align-items:center;justify-content:center;background:#0006;color:#fff;font-size:12px;line-height:1.05;text-align:center;padding:0 1px;overflow:hidden;white-space:nowrap}
+.sw.on{border-color:#fff;outline:2px solid #222}
+#chat{position:absolute;left:10px;bottom:72px;width:min(440px,70vw);font-size:13px;line-height:1.5}
+#log div{background:#0006;color:#fff;padding:2px 8px;margin-top:2px;border-radius:4px;width:fit-content;max-width:100%;word-break:break-all}
+#in{pointer-events:auto;display:none;width:100%;margin-top:4px;padding:7px 9px;font:inherit;border:0;border-radius:4px}
+#topic{position:absolute;left:50%;top:10px;transform:translateX(-50%);max-width:min(420px,70vw);text-align:center;background:rgba(0,0,0,.5);color:#fff;padding:6px 12px;border-radius:10px;font-size:14px;line-height:1.35;pointer-events:none;z-index:4;text-shadow:0 1px 2px #0008}
+/* スマホ: お題は最上部中央（右上のアイコン群 top:50px と被らないよう高さを抑える） */
+body.touch #topic{top:6px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);max-width:min(240px,62vw);text-align:center;font-size:11px;padding:4px 8px;line-height:1.25;z-index:6}
+body.touch #info{font-size:12px;max-width:42vw}
+#topic b{font-weight:700;color:#ffe082}
+#topic small{opacity:.85;font-size:12px;display:block;margin-top:2px}
+#info{position:absolute;left:10px;top:10px;font-size:12px;color:#fff;background:#0006;padding:6px 10px;border-radius:6px;line-height:1.6;white-space:pre-line}
+#hint{position:absolute;left:50%;top:38%;transform:translateX(-50%);background:#000a;color:#fff;padding:10px 18px;border-radius:8px;font-size:15px}
+#pm{position:absolute;right:10px;top:10px;pointer-events:auto;padding:7px 12px;font:inherit;font-size:12px;border:2px solid #fff8;border-radius:6px;background:#0006;color:#fff;cursor:pointer}
+#toast{position:absolute;left:50%;top:14%;transform:translateX(-50%);background:#000b;color:#fff;padding:8px 16px;border-radius:8px;font-size:14px;display:none}
+#breakBar{display:none;position:fixed;left:50%;top:58%;transform:translate(-50%,0);z-index:15;pointer-events:none;min-width:160px;max-width:70vw;text-align:center}
+#breakBar.on{display:block}
+#breakBar .bb-label{color:#fff;font-size:12px;text-shadow:0 1px 3px #000;margin-bottom:6px;background:#0008;padding:4px 10px;border-radius:6px}
+#breakBar .bb-track{height:8px;background:#0008;border-radius:4px;overflow:hidden;border:1px solid #fff6}
+#breakBar .bb-fill{height:100%;width:0%;background:linear-gradient(90deg,#ff9800,#f44336);border-radius:4px;transition:width .05s linear}
+
+#tc{display:none}
+body.touch #tc{display:block}
+#tc>*{position:absolute;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#stick{left:18px;bottom:78px;width:120px;height:120px;border-radius:50%;background:#0003;border:2px solid #fff8}
+#knob{position:absolute;left:36px;top:36px;width:48px;height:48px;border-radius:50%;background:#fffa;pointer-events:none}
+.tb{width:64px;height:64px;border-radius:50%;border:2px solid #fff;background:#0006;color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;text-shadow:0 0 3px #000}
+.tb.on{background:#2e7d32cc;border-color:#fff;box-shadow:0 0 0 3px #fff6}
+.tb.tb2{width:40px;height:40px;font-size:18px;top:50px}
+#bJump{right:54px;bottom:158px}#bAct{right:92px;bottom:84px}#bDel{right:16px;bottom:84px}#bMenu{right:10px}#bChat{right:56px}
+/* スマホ: 描くは左（スティック横）。押しながら右指で視点を回して描く */
+/* ジャンプと視点が被らないよう縦に離す。視点は上、ジャンプは下 */
+body.touch #bAct{left:128px;right:auto;bottom:110px;width:72px;height:72px;font-size:15px;background:#2a6;border:3px solid #fff8}
+body.touch #bDel{left:128px;right:auto;bottom:40px}
+/* 右下: ジャンプ下・しゃがむその上（重ならない） */
+body.touch #bJump{right:calc(14px + var(--sai-r));bottom:calc(24px + var(--sai-b));width:70px;height:70px;font-size:13px}
+body.touch #bCrouch{right:calc(18px + var(--sai-r));bottom:calc(104px + var(--sai-b));width:54px;height:54px;font-size:11px}
+#tc.cur #bAct,#tc.cur #bDel{display:none}
+@media (pointer:coarse){
+ .slot{min-width:38px;height:40px;padding:0 3px;font-size:10px}
+ #bar{gap:3px;bottom:8px}
+ #pal{grid-template-columns:repeat(3,26px);top:96px;transform:none;right:6px}
+ .sw{width:26px;height:26px}
+ .sw.tl{font-size:10px;padding:0}
+ #chat{bottom:auto;top:50px;width:min(300px,60vw)}
+ #pm{font-size:11px;padding:5px 8px}
+}
+#emo{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);display:none;gap:8px;pointer-events:auto}
+#emo button{padding:10px 12px;font:inherit;border:2px solid #fff;border-radius:8px;background:#0007;color:#fff;cursor:pointer}
+#bEmo{right:102px}#bView{right:148px}
+#edc canvas#cvF,#edc canvas#cvB{image-rendering:pixelated;background:repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/20px 20px;border:2px solid #ccd;touch-action:none}
+#cvF{width:160px;height:160px}#cvB{width:160px;height:160px;aspect-ratio:1/1}
+#cvP{width:136px;height:184px;border:2px solid #ccd;border-radius:7px;overflow:hidden;background:#f4f0e7;touch-action:none;cursor:grab;box-sizing:border-box}
+#cvP:active{cursor:grabbing}#cvP canvas{display:block;width:100%;height:100%;border:0;background:transparent;image-rendering:auto;touch-action:none}
+#edc .row{align-items:flex-end;justify-content:center;flex-wrap:wrap}
+#edpal{display:grid;grid-template-columns:repeat(13,24px);gap:3px}#edpal .sw{width:24px;height:24px}
+#menu .card{max-height:92vh;overflow:auto}#ctl{font-size:13px}#bShot{right:194px}#kl{display:flex;flex-direction:column;gap:6px}
+#adm .adm-sec{margin:8px 0 2px;font-size:12px;font-weight:700;color:#555;letter-spacing:.02em}
+#adm .adm-hint{margin:0;font-size:12px;color:#777}
+#adm .adm-kick-row{align-items:center;gap:6px}
+#adm .adm-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+#lobby{position:fixed;inset:0;background:#bfe3f2;display:flex;align-items:center;justify-content:center;z-index:9}
+#versionTag{position:absolute;right:max(12px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom));font-size:11px;line-height:1.2;letter-spacing:.035em;color:rgba(35,57,70,.66);pointer-events:none;user-select:none;z-index:1}
+.card{background:#fff;padding:28px 32px;border-radius:12px;width:min(420px,94vw);display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 24px #0003}
+.card h1{margin:0;font-size:26px}
+.card p{margin:0;font-size:13px;color:#555}
+.card input{padding:9px 10px;font:inherit;border:2px solid #ccd;border-radius:6px}
+.card button{padding:10px;font:inherit;font-weight:bold;border:0;border-radius:6px;background:#2e7d32;color:#fff;cursor:pointer}
+.card button.sub{background:#e8eef2;color:#333}
+.row{display:flex;gap:8px}.row input{flex:1;min-width:0}
+#st{min-height:1.3em;color:#b00020}
+#menu{position:fixed;inset:0;background:#0007;display:none;align-items:center;justify-content:center;z-index:20;pointer-events:auto}
+#menu .card{pointer-events:auto;position:relative;z-index:1}
+#menu .row button{flex:1}
+#menu input,#menu button{pointer-events:auto}
+.card button.off{background:#e8eef2;color:#333}
+#menu input[type=range]{padding:0;border:0}
+/* 視点: PC非表示。スマホは右端すぎない位置（右ドラッグしやすい） */
+#bLook{right:148px;bottom:158px;display:none}
+body.touch #bLook{display:flex;right:calc(150px + var(--sai-r));bottom:calc(100px + var(--sai-b));width:54px;height:54px;font-size:12px}
+
+/* ---- v12+ UI: 操作ガイド・太さプレビュー・プレイヤー一覧 ---- */
+#szPrev{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:0;height:0;border:2px solid #fff;border-radius:50%;pointer-events:none;z-index:8;display:none;box-shadow:0 0 0 1px #0008,0 0 12px #0006;background:rgba(255,255,255,.15)}
+#guide{display:none;flex-direction:column;gap:10px;max-height:85vh;overflow:auto}
+#guide h1{margin:0;font-size:22px}
+#guide h2{margin:12px 0 4px;font-size:15px;color:#333}
+#guide ul{margin:0;padding-left:1.2em;font-size:13px;color:#444;line-height:1.55}
+#guide li{margin:2px 0}
+#plist{font-size:14px;line-height:1.7;background:#f4f6f8;border-radius:8px;padding:10px 12px;max-height:min(220px,40vh);overflow:auto;color:#333;width:100%;box-sizing:border-box;word-break:break-word}
+#plist .me{font-weight:700;color:#1565c0}
+#topic .tleft{opacity:.9;font-size:11px;display:block;margin-top:2px}
+
+/* ---- v14: セーフエリア・横持ち ---- */
+:root{
+  --sai-t:env(safe-area-inset-top,0px);
+  --sai-r:env(safe-area-inset-right,0px);
+  --sai-b:env(safe-area-inset-bottom,0px);
+  --sai-l:env(safe-area-inset-left,0px);
+}
+#info{top:calc(10px + var(--sai-t));left:calc(10px + var(--sai-l))}
+#pm{top:calc(10px + var(--sai-t));right:calc(10px + var(--sai-r))}
+#topic{top:calc(10px + var(--sai-t))}
+body.touch #topic{top:calc(6px + var(--sai-t))}
+#bar{bottom:calc(12px + var(--sai-b));padding-top:14px}
+@media (pointer:coarse){
+ #bar{bottom:calc(8px + var(--sai-b))}
+ #pal{top:calc(96px + var(--sai-t));right:calc(6px + var(--sai-r))}
+ #chat{top:calc(50px + var(--sai-t));left:calc(10px + var(--sai-l))}
+}
+body.touch #stick{left:calc(18px + var(--sai-l));bottom:calc(78px + var(--sai-b))}
+body.touch #bAct{left:calc(128px + var(--sai-l));bottom:calc(110px + var(--sai-b))}
+body.touch #bDel{left:calc(128px + var(--sai-l));bottom:calc(40px + var(--sai-b))}
+body.touch #bJump{right:calc(14px + var(--sai-r));bottom:calc(24px + var(--sai-b));width:70px;height:70px;font-size:13px}
+body.touch #bCrouch{right:calc(18px + var(--sai-r));bottom:calc(104px + var(--sai-b));width:54px;height:54px;font-size:11px}
+body.touch #bLook{right:calc(150px + var(--sai-r));bottom:calc(100px + var(--sai-b));width:54px;height:54px;font-size:12px}
+.tb.tb2{top:calc(50px + var(--sai-t))}
+#bMenu{right:calc(10px + var(--sai-r))}
+#bChat{right:calc(56px + var(--sai-r))}
+#bEmo{right:calc(102px + var(--sai-r))}
+#bView{right:calc(148px + var(--sai-r))}
+#bShot{right:calc(194px + var(--sai-r))}
+/* 横持ち: 操作をコンパクトに・左右に寄せる */
+@media (pointer:coarse) and (orientation:landscape){
+ body.touch #topic{max-width:min(200px,40vw);font-size:10px;padding:3px 6px}
+ body.touch #stick{width:96px;height:96px;left:calc(12px + var(--sai-l));bottom:calc(24px + var(--sai-b))}
+ body.touch #stick #knob,body.touch #knob{left:28px;top:28px;width:40px;height:40px}
+ body.touch #bAct{left:calc(110px + var(--sai-l));bottom:calc(70px + var(--sai-b));width:56px;height:56px;font-size:12px}
+ body.touch #bDel{left:calc(110px + var(--sai-l));bottom:calc(16px + var(--sai-b));width:52px;height:52px;font-size:12px}
+ body.touch #bJump{right:calc(12px + var(--sai-r));bottom:calc(16px + var(--sai-b));width:56px;height:56px;font-size:12px}
+ body.touch #bCrouch{right:calc(14px + var(--sai-r));bottom:calc(80px + var(--sai-b));width:48px;height:48px;font-size:10px}
+ body.touch #bLook{right:calc(130px + var(--sai-r));bottom:calc(76px + var(--sai-b));width:48px;height:48px;font-size:11px}
+ .tb.tb2{top:calc(8px + var(--sai-t));width:36px;height:36px;font-size:16px}
+ #pal{top:calc(52px + var(--sai-t));grid-template-columns:repeat(3,24px)}
+ #bar{bottom:calc(6px + var(--sai-b))}
+ #chat{top:calc(44px + var(--sai-t));width:min(240px,45vw)}
+ body.touch #info{font-size:11px;max-width:36vw}
+}
+#plist .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;border:1px solid #0003}
+#log .nm{font-weight:700;color:#fff;text-shadow:0 0 3px #000,1px 0 0 #000,-1px 0 0 #000,0 1px 0 #000,0 -1px 0 #000}
+
+/* ---- 太さスライダー（パレット付近・右寄せ） ---- */
+#szPanel{
+  display:none !important;
+  position:fixed !important;
+  z-index:50 !important;
+  left:auto !important;
+  right:16px !important;
+  top:auto !important;
+  bottom:30% !important;
+  transform:none !important;
+  width:170px !important;
+  max-width:50vw !important;
+  box-sizing:border-box;
+  pointer-events:auto !important;
+  background:rgba(0,0,0,.85);
+  color:#fff;
+  padding:12px 14px;
+  border-radius:10px;
+  box-shadow:0 4px 16px #0006;
+  touch-action:none;
+}
+#szPanel.is-open{display:block !important}
+#szPanel, #szPanel *{pointer-events:auto}
+#szPanel label{display:block;font-size:13px;margin-bottom:8px;text-align:center;pointer-events:none}
+#szPanel input[type=range]{
+  display:block;width:100%;margin:0;padding:0;
+  accent-color:#8bc34a;
+  touch-action:none;
+}
+#szPanel .szlab{display:flex;justify-content:space-between;font-size:12px;opacity:.85;margin-top:6px;pointer-events:none}
+
+/* ---- チャット履歴 ---- */
+#chatHist{
+  display:none;flex-direction:column;
+  background:rgba(0,0,0,.82);color:#fff;
+  border-radius:10px;margin-bottom:6px;
+  max-height:min(42vh,320px);width:100%;
+  pointer-events:auto;box-shadow:0 4px 16px #0005;
+  overflow:hidden;
+}
+#chatHist .ch-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 10px 4px;font-size:12px;opacity:.9;
+  border-bottom:1px solid #fff2;
+}
+#chatHist .ch-x{
+  border:0;background:#fff2;color:#fff;border-radius:6px;
+  width:28px;height:28px;font-size:16px;cursor:pointer;line-height:1;
+}
+#chatHistBox{
+  overflow-y:auto;padding:6px 10px 10px;
+  font-size:13px;line-height:1.45;
+  -webkit-overflow-scrolling:touch;
+}
+#chatHistBox .ch-row{margin:3px 0;word-break:break-all}
+#chatHistBox .ch-nm{font-weight:700;text-shadow:0 0 2px #000}
+#chatHistBox .ch-time{opacity:.55;font-size:11px;margin-right:6px}
+#chatHistBox .ch-sys .ch-nm{opacity:.8;font-weight:600}
+@media (pointer:coarse){
+  #chatHist{max-height:min(38vh,280px)}
+}
+
+#bCrouch{display:none}
+/* 位置は上の body.touch #bJump / #bCrouch で指定。ここでは表示だけ */
+body.touch #bCrouch{display:flex;align-items:center;justify-content:center;z-index:6;
+  background:rgba(0,0,0,.45);color:#fff;border:2px solid #fff6;pointer-events:auto;user-select:none}
+body.touch #bCrouch.on{background:rgba(80,140,255,.55)}
+
+/* 水中オーバーレイ */
+#uw{
+  position:fixed;inset:0;pointer-events:none;z-index:4;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(40,120,160,.18) 0%, rgba(15,50,90,.42) 70%, rgba(8,30,55,.55) 100%);
+  opacity:0;transition:opacity .2s ease;
+}
+#uw.on{opacity:1}
+
+#plist div{white-space:normal;overflow-wrap:anywhere}
+
+/* ホットバー9枠 + ブロック選択 */
+#bar{display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-end;gap:3px;max-width:96vw;overflow-x:auto;padding-top:14px;box-sizing:border-box}
+#bar .slot{min-width:34px;max-width:56px;flex:1 1 34px;font-size:10px;padding:2px 3px}
+#blkPickBackdrop{
+  display:none;position:fixed;inset:0;z-index:24;background:transparent;
+  pointer-events:auto;touch-action:manipulation;
+}
+#blkPick{
+  display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+  z-index:25;background:#1a1a1ee6;color:#fff;border-radius:12px;padding:12px 14px;
+  flex-direction:column;gap:8px;max-width:min(420px,94vw);max-height:min(70vh,520px);
+  box-shadow:0 8px 32px #0008;pointer-events:auto;
+}
+#blkPick .bp-head{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+#blkPick #bpClose{border:0;background:#fff2;color:#fff;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px}
+#bpGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;overflow-y:auto}
+#bpGrid .bp-item{border:2px solid #fff4;border-radius:8px;padding:10px 4px;font:inherit;font-size:12px;font-weight:700;color:#111;cursor:pointer;text-shadow:0 0 2px #fff}
+#bpGrid .bp-item:hover{border-color:#fff}
+#blkPick .bp-hint{margin:0;font-size:11px;opacity:.7}
+
+#mLeave.m-leave,#mLeave{background:#c62828;color:#fff;border-color:#c62828;font-weight:700}
+#mLeave:hover{filter:brightness(1.08)}
+
+body.touch 
+/* ポインターロック未取得時の案内を強調 */
+body.need-lock #hint{display:block;background:#b71c1ccc;border:2px solid #ffcdd2;font-weight:700;animation:hintPulse 1.2s ease-in-out infinite}
+@keyframes hintPulse{0%,100%{opacity:1}50%{opacity:.82}}
+
+
+/* ===== 参加者リスト（潰れ防止・上書き強め） ===== */
+#menu .card{
+  width:min(440px,96vw) !important;
+  max-width:96vw !important;
+  box-sizing:border-box;
+  overflow-x:hidden;
+  overflow-y:auto;
+}
+#menu .card > *{min-width:0;max-width:100%;box-sizing:border-box}
+#plist{
+  display:block !important;
+  width:100% !important;
+  max-width:100% !important;
+  min-width:0 !important;
+  min-height:4.5em;
+  max-height:min(320px,48vh);
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+  box-sizing:border-box !important;
+  padding:12px 14px !important;
+  font-size:15px !important;
+  line-height:1.85 !important;
+  background:#f0f3f6 !important;
+  border-radius:8px;
+  color:#222 !important;
+}
+#plist div,#plist .me{
+  display:block !important;
+  width:100% !important;
+  max-width:100% !important;
+  box-sizing:border-box !important;
+  white-space:normal !important;
+  overflow:visible !important;
+  text-overflow:clip !important;
+  word-break:break-word !important;
+  overflow-wrap:anywhere !important;
+}
+#plist .dot{flex-shrink:0}
+#kl{width:100% !important;min-width:0;display:flex;flex-direction:column;gap:8px}
+#kl .adm-kick-row{
+  display:flex !important;
+  flex-wrap:wrap !important;
+  align-items:center;
+  gap:8px;
+  width:100% !important;
+}
+#kl .adm-name{
+  flex:1 1 8em !important;
+  min-width:6em !important;
+  max-width:100% !important;
+  white-space:normal !important;
+  overflow:visible !important;
+  text-overflow:clip !important;
+  word-break:break-word !important;
+  font-size:14px !important;
+}
+
+/* v20.39: in-world telephone-game terminal prompt */
+#phoneStationHint{display:none;position:fixed;left:50%;top:calc(50% + 24px);transform:translateX(-50%);z-index:7;max-width:min(88vw,520px);padding:8px 13px;border:1px solid #fff9;border-radius:8px;background:rgba(12,18,24,.86);color:#fff;font-size:14px;font-weight:700;line-height:1.35;text-align:center;text-shadow:0 1px 2px #000;pointer-events:none;white-space:normal}
+body.touch #phoneStationHint{top:calc(60% + var(--sai-t,0px));font-size:12px;padding:7px 10px}
+body.touch #bAct.phone-use{background:#e07818!important;border-color:#fff!important;box-shadow:0 0 0 3px #ffcf8a99}
+
+
+
+/* v20.49: low-intensity, optional shared horror event overlay (no flashing or sound) */
+.horror-setting-note{font-size:11px!important;color:#68727a!important;line-height:1.45}
+.horror-fx{position:fixed;inset:0;z-index:14;pointer-events:none;overflow:hidden;visibility:hidden;opacity:0}
+.horror-fx.on{visibility:visible;opacity:1}
+.horror-vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 34%,rgba(0,0,0,.54) 100%);opacity:0}
+.horror-fx.whisper .horror-vignette{animation:horror-vignette-in 1.9s ease-out both}
+.horror-breath{position:absolute;top:9%;bottom:9%;width:25vw;max-width:320px;opacity:0;filter:blur(14px);pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,.62) 0%,rgba(0,0,0,.26) 34%,transparent 72%)}
+.horror-fx.whisper-left .horror-breath{left:-12vw}
+.horror-fx.whisper-right .horror-breath{right:-12vw}
+.horror-fx.whisper .horror-breath{animation:horror-breath-in 1.9s ease-out both}
+@keyframes horror-breath-in{0%,100%{opacity:0;transform:scaleX(.72)}20%{opacity:.28;transform:scaleX(1)}42%{opacity:.65;transform:scaleX(1.06)}72%{opacity:.22;transform:scaleX(.94)}}
+@keyframes horror-vignette-in{0%{opacity:0}18%{opacity:.76}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.horror-fx.whisper .horror-vignette,.horror-fx.whisper .horror-breath{animation:none}.horror-fx.on .horror-vignette{opacity:.12}.horror-fx.whisper .horror-breath{opacity:.2}}
+
+
+
+/* v20.57: non-spatial incoming-call control; callers can answer anywhere. */
+.horror-call-prompt{position:fixed;top:calc(54px + env(safe-area-inset-top));right:14px;z-index:120;display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid rgba(255,255,255,.38);border-radius:12px;background:rgba(11,13,17,.94);color:#fff;box-shadow:0 6px 24px rgba(0,0,0,.38);font-size:13px;pointer-events:auto;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.horror-call-prompt[hidden]{display:none!important}
+.horror-call-icon{font-size:23px;line-height:1;animation:horror-call-pulse 1.25s ease-in-out infinite}
+.horror-call-label{font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.horror-call-prompt button{appearance:none;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;color:#fff;background:#374151;cursor:pointer;touch-action:manipulation;min-height:36px}
+.horror-call-prompt #horrorCallAnswer{background:#a52828;border-color:#f5b4b4}
+.horror-call-prompt #horrorCallAnswer:disabled{opacity:.7}
+.horror-call-prompt button:active{transform:translateY(1px)}
+@keyframes horror-call-pulse{0%,100%{opacity:1;transform:rotate(-8deg)}50%{opacity:.58;transform:rotate(8deg)}}
+@media(max-width:520px){.horror-call-prompt{top:calc(100px + env(safe-area-inset-top));right:8px;left:8px;justify-content:center;gap:7px;padding:7px 8px}.horror-call-prompt button{padding:7px 10px;min-height:34px}.horror-call-label{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.horror-call-icon{animation:none}}
+
+
+
+
+/* v20.64: a lightweight in-world speech bubble for the separate mischievous creature. */
+.creature-speech{position:fixed;z-index:18;transform:translate(-50%,-100%);width:max-content;max-width:min(240px,calc(100vw - 24px));box-sizing:border-box;padding:8px 11px;border:1px solid rgba(255,255,255,.92);border-radius:13px;background:rgba(250,255,249,.96);color:#20333a;font-size:13px;font-weight:650;line-height:1.4;text-align:center;box-shadow:0 3px 14px rgba(0,0,0,.27);pointer-events:none;overflow-wrap:anywhere;white-space:normal;opacity:0;animation:creature-speech-in .18s ease-out forwards}
+.creature-speech::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;transform:translateX(-50%) rotate(45deg);background:rgba(250,255,249,.96);border-right:1px solid rgba(255,255,255,.92);border-bottom:1px solid rgba(255,255,255,.92)}
+.creature-speech[hidden]{display:none!important}
+/* v20.82: very short greetings still need a legible, stable speech bubble. */
+.creature-speech.is-short{box-sizing:border-box;min-width:92px;min-height:44px;display:flex;align-items:center;justify-content:center;text-align:center;padding:9px 14px}
+@keyframes creature-speech-in{from{opacity:0;transform:translate(-50%,-92%) scale(.96)}to{opacity:1;transform:translate(-50%,-100%) scale(1)}}
+@media(prefers-reduced-motion:reduce){.creature-speech{animation:none;opacity:1}}
+
+
+/* v20.73: ポストンのひらめき便UI。 */
+#forestResidentHint{display:none;position:fixed;left:50%;top:calc(50% + 48px);transform:translateX(-50%);z-index:18;max-width:min(88vw,440px);padding:8px 14px;border:2px solid #ffd34f;border-radius:14px;background:linear-gradient(110deg,rgba(32,101,116,.96),rgba(39,127,120,.96));color:#fff6cf;font-size:13px;font-weight:800;text-align:center;text-shadow:0 1px 2px #18434b;box-shadow:0 4px 0 #194d57,0 6px 16px #0004;pointer-events:none}
+body.touch #forestResidentHint{top:calc(60% + var(--sai-t,0px));font-size:12px}
+.forest-resident-speech{position:fixed;z-index:18;transform:translate(-50%,-100%);width:max-content;max-width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:25px 13px 12px;border:2px solid #e6b94c;border-radius:13px 13px 13px 5px;background:linear-gradient(145deg,rgba(255,249,220,.99),rgba(255,234,174,.98));color:#24484b;font-size:13px;font-weight:750;line-height:1.5;text-align:left;box-shadow:0 4px 0 #b6822b,0 7px 18px rgba(0,0,0,.28);pointer-events:none;overflow-wrap:anywhere;white-space:normal;opacity:0;animation:forest-resident-speech-in .2s ease-out forwards}
+.forest-resident-speech::before{content:'💌 ひらめき便';position:absolute;top:6px;left:10px;color:#b35b4d;font-size:10px;font-weight:900;letter-spacing:.04em}.forest-resident-speech::after{content:"";position:absolute;left:22px;bottom:-8px;width:13px;height:13px;transform:rotate(45deg);background:#ffedb2;border-right:2px solid #e6b94c;border-bottom:2px solid #e6b94c}
+.forest-resident-speech[hidden]{display:none!important}
+/* Short Poston greetings must remain wider than the fixed "ひらめき便" label. */
+.forest-resident-speech.is-short{box-sizing:border-box;min-width:158px;min-height:68px;display:flex;align-items:center;justify-content:center;text-align:center;padding:25px 15px 12px}
+@keyframes forest-resident-speech-in{from{opacity:0;transform:translate(-50%,-92%) scale(.9) rotate(-1deg)}to{opacity:1;transform:translate(-50%,-100%) scale(1) rotate(0)}}
+@media(prefers-reduced-motion:reduce){.forest-resident-speech{animation:none;opacity:1}}
+
+
+/* v20.76: 物知りのホシヨミ用ヒントと吹き出し */
+#wiseCharacterHint{display:none;position:fixed;left:50%;top:calc(50% + 86px);transform:translateX(-50%);z-index:18;max-width:min(88vw,440px);padding:8px 14px;border:2px solid #d7c9ff;border-radius:14px;background:linear-gradient(110deg,rgba(65,58,105,.97),rgba(85,76,139,.97));color:#fff8d8;font-size:13px;font-weight:800;text-align:center;text-shadow:0 1px 2px #292443;box-shadow:0 4px 0 #393252,0 6px 16px #0004;pointer-events:none}
+body.touch #wiseCharacterHint{top:calc(65% + var(--sai-t,0px));font-size:12px}
+.wise-character-speech{position:fixed;z-index:18;transform:translate(-50%,-100%);width:max-content;max-width:min(300px,calc(100vw - 24px));box-sizing:border-box;padding:22px 13px 12px;border:2px solid #c5b7ef;border-radius:15px 15px 5px 15px;background:linear-gradient(145deg,rgba(249,246,255,.99),rgba(225,218,250,.98));color:#34304e;font-size:13px;font-weight:700;line-height:1.5;text-align:left;box-shadow:0 4px 0 #8170b3,0 7px 18px rgba(0,0,0,.28);pointer-events:none;overflow-wrap:anywhere;white-space:normal;opacity:0;animation:wise-character-speech-in .22s ease-out forwards}
+.wise-character-speech::before{content:'✦ ホシヨミの知恵 ✦';position:absolute;top:5px;left:10px;color:#7866a8;font-size:10px;font-weight:900;letter-spacing:.04em}
+.wise-character-speech::after{content:"";position:absolute;right:22px;bottom:-8px;width:13px;height:13px;transform:rotate(45deg);background:#e7e0fb;border-right:2px solid #c5b7ef;border-bottom:2px solid #c5b7ef}
+.wise-character-speech[hidden]{display:none!important}
+/* Short Hoshiyomi greetings should not collapse beneath the decorative heading. */
+.wise-character-speech.is-short{box-sizing:border-box;min-width:168px;min-height:68px;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px 15px 12px}
+@keyframes wise-character-speech-in{from{opacity:0;transform:translate(-50%,-92%) scale(.92) rotate(1deg)}to{opacity:1;transform:translate(-50%,-100%) scale(1) rotate(0)}}
+@media(prefers-reduced-motion:reduce){.wise-character-speech{animation:none;opacity:1}}
+
+
+/* v20.86: one minimal, shared interaction prompt. Mobile uses the existing action button. */
+#interactPrompt{position:fixed;left:50%;top:calc(50% + 22px);transform:translateX(-50%);z-index:19;display:flex;align-items:center;gap:6px;padding:4px 7px;border:1px solid rgba(255,255,255,.28);border-radius:5px;background:rgba(8,11,14,.72);color:#fff;font-size:12px;font-weight:600;line-height:1.2;text-shadow:0 1px 2px #000;pointer-events:none;white-space:nowrap;backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+#interactPrompt[hidden]{display:none!important}
+#interactPromptKey{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;box-sizing:border-box;padding:0 4px;border:1px solid rgba(255,255,255,.5);border-radius:3px;background:rgba(255,255,255,.08);font-size:10px;font-weight:800;line-height:1}
+#phoneStationHint,#forestResidentHint,#wiseCharacterHint{display:none!important}
+@media(pointer:coarse){#interactPrompt{display:none!important}}
+
+
+.disaster-test-tools{margin:8px 0}
+.disaster-test-tools summary{cursor:pointer;font-size:12px;color:#d8e8f0;padding:5px 0}
