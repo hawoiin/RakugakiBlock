@@ -294,8 +294,70 @@ function makeNaturalCaveEdits(w){
 
   return edits;
 }
+// v20.138 洞窟拡張。既存洞窟の東端(x=25)から接続する追加区画のみを編集する。
+// 高さは地表から最低2ブロックを残すよう制限し、地表に穴が開かないようにする。
+function makeNaturalCaveExtensionEdits(w){
+ const edits=new Map();
+ const inside=(x,y,z)=>x>=26&&x<W&&y>=0&&y<H&&z>=0&&z<D;
+ const air=(x,y,z)=>{if(inside(x,y,z))edits.set(idx(x,y,z),0)};
+ const put=(x,y,z,b)=>{if(inside(x,y,z))edits.set(idx(x,y,z),b)};
+ const groundTop=(x,z)=>{
+  for(let y=H-1;y>=0;y--){const b=w[idx(x,y,z)];if(b===1||b===2||b===3||b===7)return y;}
+  return -1;
+ };
+ const carveColumn=(x,z,desiredRoof)=>{
+  const top=groundTop(x,z);
+  // 12未満では、床(y=8)の上にプレイヤーが通れる高さと天井の厚みを両立できない。
+  if(top<12)return;
+  const roof=Math.min(desiredRoof,top-2);
+  if(roof<10)return;
+  for(let y=9;y<=roof;y++)air(x,y,z);
+ };
+
+ // 既存の鉱脈行き止まり(x=25)から続く、わずかに曲がる3ブロック高の通路。
+ for(let x=26;x<=31;x++){
+  const t=x-26;
+  const centerZ=9+Math.round(Math.sin(t*.58)*.55+Math.sin(t*.91)*.18);
+  const wide=(x===29||x===30)?2:1;
+  for(let z=centerZ-wide;z<=centerZ+wide;z++){
+   const edge=Math.abs(z-centerZ);
+   carveColumn(x,z,edge===wide?10:11);
+  }
+ }
+
+ // 東側の主空洞。外周を不規則にし、天井高にも少し変化をつける。
+ for(let x=30;x<=36;x++)for(let z=7;z<=12;z++){
+  const r=((x-33.1)/3.25)**2+((z-9.25)/2.65)**2;
+  const wobble=(noise2(x*1.91+37,z*1.47+11)-.5)*.16;
+  if(r>1+wobble)continue;
+  const roof=10+Math.floor(2*(1-Math.min(r,1))+(noise2(x*1.21,z*1.73)>.84?1:0));
+  carveColumn(x,z,roof);
+ }
+
+ // 北側の分岐。中央広間から狭い曲がり道を抜けて、別の小部屋へつながる。
+ for(let z=7;z>=4;z--){
+  const centerX=33+Math.round(Math.sin(z*.68)*.58);
+  for(let x=centerX-1;x<=centerX+1;x++){
+   const edge=Math.abs(x-centerX);
+   carveColumn(x,z,edge?10:11);
+  }
+ }
+ for(let x=31;x<=35;x++)for(let z=3;z<=6;z++){
+  const r=((x-33.0)/2.35)**2+((z-4.45)/1.75)**2;
+  const wobble=(noise2(x*2.31+5,z*1.63+29)-.5)*.13;
+  if(r>1+wobble)continue;
+  const roof=11+Math.floor(1.5*(1-Math.min(r,1)));
+  carveColumn(x,z,roof);
+ }
+
+ // 新しい小部屋の壁際にだけ、結晶と金鉱脈を少量配置。中央の通路は塞がない。
+ for(const [x,y,z] of [[31,9,4],[31,10,4],[32,9,3],[32,10,3]])put(x,y,z,13);
+ for(const [x,y,z] of [[37,10,9],[37,11,9],[37,10,10]])put(x,y,z,12);
+ return edits;
+}
+
 function refreshNaturalCaveWallCells(w=world){
-  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=makeNaturalCaveEdits(w);
+  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w)]);
   for(const [at,b] of planned){
    if((b===6||b===12||b===13)&&w[at]===b)naturalCaveAccentCells.add(at);
    if(b!==0||w[at]!==0)continue;
@@ -308,6 +370,7 @@ function refreshNaturalCaveWallCells(w=world){
 }
 function applyNaturalCave(w,trackVisual=(w===world)){
  const edits=makeNaturalCaveEdits(w);for(const [at,b] of edits)w[at]=b;
+ const extension=makeNaturalCaveExtensionEdits(w);for(const [at,b] of extension)w[at]=b;
  if(trackVisual)refreshNaturalCaveWallCells(w);
  return edits;
 }
@@ -1484,7 +1547,7 @@ function setBlock(x,y,z,b,local){
  if(!b)clearBlockPaint(x,y,z);
  world[idx(x,y,z)]=b;
  wDirty=true;saveDirty=true;
- if(x<=26&&y>=7&&y<=18&&z>=1&&z<=20)refreshNaturalCaveWallCells(world);
+ if(x<=39&&y>=7&&y<=18&&z>=1&&z<=16)refreshNaturalCaveWallCells(world);
  // ブロックの変更で表示状態が変わり得る、隣接する落書き面だけ再構築対象にする。
  if(paint.size){
   for(let f=0;f<6;f++){

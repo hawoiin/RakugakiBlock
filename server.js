@@ -32,7 +32,7 @@ const PORT = process.env.PORT || 3040;
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
 const VER = 14; // ペン突き通信を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
-const NATURAL_CAVE_VERSION = 2;
+const NATURAL_CAVE_VERSION = 3;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
 /** リバースプロキシの段数。直接公開なら 0（X-Forwarded-For を信じない） */
@@ -391,6 +391,68 @@ function makeNaturalCaveEdits(world){
 
   return edits;
 }
+// v20.138 洞窟拡張。既存洞窟の東端(x=25)から接続する追加区画のみを編集する。
+// 高さは地表から最低2ブロックを残すよう制限し、地表に穴が開かないようにする。
+function makeNaturalCaveExtensionEdits(w){
+ const edits=new Map();
+ const inside=(x,y,z)=>x>=26&&x<W&&y>=0&&y<H&&z>=0&&z<D;
+ const air=(x,y,z)=>{if(inside(x,y,z))edits.set(idx(x,y,z),0)};
+ const put=(x,y,z,b)=>{if(inside(x,y,z))edits.set(idx(x,y,z),b)};
+ const groundTop=(x,z)=>{
+  for(let y=H-1;y>=0;y--){const b=w[idx(x,y,z)];if(b===1||b===2||b===3||b===7)return y;}
+  return -1;
+ };
+ const carveColumn=(x,z,desiredRoof)=>{
+  const top=groundTop(x,z);
+  // 12未満では、床(y=8)の上にプレイヤーが通れる高さと天井の厚みを両立できない。
+  if(top<12)return;
+  const roof=Math.min(desiredRoof,top-2);
+  if(roof<10)return;
+  for(let y=9;y<=roof;y++)air(x,y,z);
+ };
+
+ // 既存の鉱脈行き止まり(x=25)から続く、わずかに曲がる3ブロック高の通路。
+ for(let x=26;x<=31;x++){
+  const t=x-26;
+  const centerZ=9+Math.round(Math.sin(t*.58)*.55+Math.sin(t*.91)*.18);
+  const wide=(x===29||x===30)?2:1;
+  for(let z=centerZ-wide;z<=centerZ+wide;z++){
+   const edge=Math.abs(z-centerZ);
+   carveColumn(x,z,edge===wide?10:11);
+  }
+ }
+
+ // 東側の主空洞。外周を不規則にし、天井高にも少し変化をつける。
+ for(let x=30;x<=36;x++)for(let z=7;z<=12;z++){
+  const r=((x-33.1)/3.25)**2+((z-9.25)/2.65)**2;
+  const wobble=(noise2(x*1.91+37,z*1.47+11)-.5)*.16;
+  if(r>1+wobble)continue;
+  const roof=10+Math.floor(2*(1-Math.min(r,1))+(noise2(x*1.21,z*1.73)>.84?1:0));
+  carveColumn(x,z,roof);
+ }
+
+ // 北側の分岐。中央広間から狭い曲がり道を抜けて、別の小部屋へつながる。
+ for(let z=7;z>=4;z--){
+  const centerX=33+Math.round(Math.sin(z*.68)*.58);
+  for(let x=centerX-1;x<=centerX+1;x++){
+   const edge=Math.abs(x-centerX);
+   carveColumn(x,z,edge?10:11);
+  }
+ }
+ for(let x=31;x<=35;x++)for(let z=3;z<=6;z++){
+  const r=((x-33.0)/2.35)**2+((z-4.45)/1.75)**2;
+  const wobble=(noise2(x*2.31+5,z*1.63+29)-.5)*.13;
+  if(r>1+wobble)continue;
+  const roof=11+Math.floor(1.5*(1-Math.min(r,1)));
+  carveColumn(x,z,roof);
+ }
+
+ // 新しい小部屋の壁際にだけ、結晶と金鉱脈を少量配置。中央の通路は塞がない。
+ for(const [x,y,z] of [[31,9,4],[31,10,4],[32,9,3],[32,10,3]])put(x,y,z,13);
+ for(const [x,y,z] of [[37,10,9],[37,11,9],[37,10,10]])put(x,y,z,12);
+ return edits;
+}
+
 
 function makeNaturalCaveEditsV1(world) {
   const edits = new Map();
@@ -427,9 +489,20 @@ function makeNaturalCaveEditsV1(world) {
 }
 function applyNaturalCave(world) {
   for (const [at, block] of makeNaturalCaveEdits(world)) world[at] = block;
+  for (const [at, block] of makeNaturalCaveExtensionEdits(world)) world[at] = block;
 }
 function applyNaturalCaveSafely(world, baseline, previousVersion = 0) {
   const edits = makeNaturalCaveEdits(baseline);
+  const extension = makeNaturalCaveExtensionEdits(baseline);
+
+  // v2ワールドは既存洞窟を保持し、追加区画だけを未編集の場合に導入する。
+  if (previousVersion >= 2) {
+    for (const at of extension.keys()) if (world[at] !== baseline[at]) return false;
+    for (const [at, block] of extension) if (baseline[at] !== block) world[at] = block;
+    return true;
+  }
+
+  const allEdits = new Map([...edits, ...extension]);
   if (previousVersion === 1) {
     // v1洞窟のままかを確認してからだけ差し替える。洞窟内を誰かが編集していたら保持する。
     const oldEdits = makeNaturalCaveEditsV1(baseline);
@@ -437,14 +510,14 @@ function applyNaturalCaveSafely(world, baseline, previousVersion = 0) {
     for (const [at, block] of oldEdits) expectedOld[at] = block;
     for (const at of oldEdits.keys()) if (world[at] !== expectedOld[at]) return false;
     const oldKeys = new Set(oldEdits.keys());
-    for (const at of edits.keys()) if (!oldKeys.has(at) && world[at] !== baseline[at]) return false;
+    for (const at of allEdits.keys()) if (!oldKeys.has(at) && world[at] !== baseline[at]) return false;
     for (const at of oldEdits.keys()) world[at] = baseline[at];
-    for (const [at, block] of edits) world[at] = block;
+    for (const [at, block] of allEdits) world[at] = block;
     return true;
   }
-  // v0/未導入ワールドは予定地にプレイヤー編集がない場合のみ追加する。
-  for (const at of edits.keys()) if (world[at] !== baseline[at]) return false;
-  for (const [at, block] of edits) if (baseline[at] !== block) world[at] = block;
+  // v0/未導入ワールドは既存洞窟と追加区画の全予定地に編集がない場合のみ追加する。
+  for (const at of allEdits.keys()) if (world[at] !== baseline[at]) return false;
+  for (const [at, block] of allEdits) if (baseline[at] !== block) world[at] = block;
   return true;
 }
 // Shared telephone-game terminal. Keep this voxel layout and candidate search in sync with game.js.
@@ -1726,7 +1799,7 @@ function createSporeShooter(room) {
 function playerIsInNaturalCave(room, player) {
   if (!hasNaturalCaveForSpore(room) || !player || !Array.isArray(player.pos) || player.pos.length < 3 || !player.pos.every(Number.isFinite)) return false;
   const [px, py, pz] = player.pos;
-  if (px < 1.5 || px > 27.5 || pz < 1.5 || pz > 19.5 || py < 8.65 || py > 11.85) return false;
+  if (px < 1.5 || px > 37.5 || pz < 2.5 || pz > 13.5 || py < 8.65 || py > 11.85) return false;
   const x = Math.floor(px), z = Math.floor(pz), floorY = Math.floor(py - 0.08), bodyY = Math.floor(py + 0.25), headY = Math.floor(py + 1.15);
   if (x < 0 || z < 0 || floorY < 0 || headY >= H) return false;
   return sporeSolidBlock(room.world[idx(x, floorY, z)]) &&
