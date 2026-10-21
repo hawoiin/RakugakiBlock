@@ -356,8 +356,65 @@ function makeNaturalCaveExtensionEdits(w){
  return edits;
 }
 
+// v20.141 洞窟の下層。既存洞窟の床下を通る下り階段と地下広間を追加する。
+// 編集対象の床・天井も guard に記録し、保存済みワールドの建築があれば移行を中止できる。
+function makeNaturalCaveDeepPlan(w){
+ const edits=new Map(),guards=new Set();
+ const inside=(x,y,z)=>x>=0&&x<W&&y>=0&&y<H&&z>=0&&z<D;
+ const guard=(x,y,z)=>{if(inside(x,y,z))guards.add(idx(x,y,z))};
+ const air=(x,y,z)=>{if(inside(x,y,z))edits.set(idx(x,y,z),0)};
+ const put=(x,y,z,b)=>{if(inside(x,y,z))edits.set(idx(x,y,z),b)};
+ const groundTop=(x,z)=>{for(let y=H-1;y>=0;y--){const b=w[idx(x,y,z)];if(b===1||b===2||b===3||b===7)return y}return -1};
+ const carveRampCell=(x,z,floorY)=>{
+  const top=groundTop(x,z);if(top<floorY+3)return false;
+  const roof=Math.min(11,top-2);if(roof<floorY+2)return false;
+  guard(x,floorY,z);
+  for(let y=roof+1;y<=top;y++)guard(x,y,z);
+  for(let y=floorY+1;y<=roof;y++)air(x,y,z);
+  return true;
+ };
+ const carveDeepCell=(x,z)=>{
+  const top=groundTop(x,z);if(top<12)return false;
+  // 下層天井(y=8)、地表までの岩盤、床(y=3)を移行前に検査する。
+  guard(x,3,z);for(let y=8;y<=top;y++)guard(x,y,z);
+  for(let y=4;y<=7;y++)air(x,y,z);
+  return true;
+ };
+
+ // 上層の南東端(x=35,z=11)から一度南へ折れて、2セル幅の階段へ接続。
+ // x=35..37 は上層床(y=8)、その先は1セルずつ低くなる。
+ for(let x=35;x<=41;x++){
+  const floorY=x<=37?8:8-(x-37);
+  for(const z of [12,13])carveRampCell(x,z,floorY);
+ }
+
+ // 地下主広間。床はy=3、天井はy=8。上層とは階段だけでつながる。
+ for(let x=42;x<=49;x++)for(let z=7;z<=15;z++){
+  const r=((x-45.2)/4.1)**2+((z-11)/4.15)**2;
+  const wobble=(noise2(x*1.67+41,z*1.29+23)-.5)*.14;
+  if(r>1+wobble)continue;
+  carveDeepCell(x,z);
+ }
+
+ // 北へ折れる下層の通路と小部屋。主広間を見渡せない位置に隠れた横穴を作る。
+ for(let z=7;z>=5;z--)for(let x=44;x<=46;x++)carveDeepCell(x,z);
+ for(let x=42;x<=48;x++)for(let z=2;z<=6;z++){
+  const r=((x-45)/2.7)**2+((z-4)/2.15)**2;
+  const wobble=(noise2(x*2.07+13,z*1.51+37)-.5)*.14;
+  if(r>1+wobble)continue;
+  carveDeepCell(x,z);
+ }
+
+ // 壁際の結晶と金鉱脈、天井の低い岩。通路の中央と階段は塞がない。
+ for(const [x,y,z] of [[43,4,14],[43,5,14],[44,4,14]])put(x,y,z,13);
+ for(const [x,y,z] of [[49,4,11],[49,5,11],[49,4,12]])put(x,y,z,12);
+ for(const [x,y,z] of [[45,7,10],[46,7,9]])put(x,y,z,3);
+ return {edits,guards};
+}
+function makeNaturalCaveDeepEdits(w){return makeNaturalCaveDeepPlan(w).edits;}
+
 function refreshNaturalCaveWallCells(w=world){
-  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w)]);
+  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w),...makeNaturalCaveDeepEdits(w)]);
   for(const [at,b] of planned){
    if((b===6||b===12||b===13)&&w[at]===b)naturalCaveAccentCells.add(at);
    if(b!==0||w[at]!==0)continue;
@@ -369,16 +426,19 @@ function refreshNaturalCaveWallCells(w=world){
   }
 }
 function applyNaturalCave(w,trackVisual=(w===world)){
+ const deep=makeNaturalCaveDeepPlan(w);
  const edits=makeNaturalCaveEdits(w);for(const [at,b] of edits)w[at]=b;
  const extension=makeNaturalCaveExtensionEdits(w);for(const [at,b] of extension)w[at]=b;
+ for(const [at,b] of deep.edits)w[at]=b;
  if(trackVisual)refreshNaturalCaveWallCells(w);
  return edits;
 }
 function applyNaturalCaveSafely(w,baseline){
- const edits=makeNaturalCaveEdits(baseline);
- // 洞窟予定地にプレイヤー作成の変更が一つでもあれば、既存建築を守るため全体を適用しない。
- for(const at of edits.keys())if(w[at]!==baseline[at])return false;
- for(const [at,b] of edits)if(baseline[at]!==b)w[at]=b;
+ const edits=makeNaturalCaveEdits(baseline),extension=makeNaturalCaveExtensionEdits(baseline),deep=makeNaturalCaveDeepPlan(baseline);
+ const all=new Map([...edits,...extension,...deep.edits]);
+ for(const at of deep.guards)if(w[at]!==baseline[at])return false;
+ for(const at of all.keys())if(w[at]!==baseline[at])return false;
+ for(const [at,b] of all)if(baseline[at]!==b)w[at]=b;
  return true;
 }
 function genTerrainNature(withCave=true){
@@ -1554,7 +1614,7 @@ function setBlock(x,y,z,b,local){
  if(!b)clearBlockPaint(x,y,z);
  world[idx(x,y,z)]=b;
  wDirty=true;saveDirty=true;
- if(x<=39&&y>=7&&y<=18&&z>=1&&z<=16)refreshNaturalCaveWallCells(world);
+ if(x<=50&&y>=3&&y<=18&&z>=1&&z<=17)refreshNaturalCaveWallCells(world);
  // ブロックの変更で表示状態が変わり得る、隣接する落書き面だけ再構築対象にする。
  if(paint.size){
   for(let f=0;f<6;f++){

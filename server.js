@@ -32,7 +32,7 @@ const PORT = process.env.PORT || 3040;
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
 const VER = 15; // 胞子吐きの歩行状態を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
-const NATURAL_CAVE_VERSION = 3;
+const NATURAL_CAVE_VERSION = 4;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
 /** リバースプロキシの段数。直接公開なら 0（X-Forwarded-For を信じない） */
@@ -454,6 +454,63 @@ function makeNaturalCaveExtensionEdits(w){
 }
 
 
+// v20.141 洞窟の下層。既存洞窟の床下を通る下り階段と地下広間を追加する。
+// 編集対象の床・天井も guard に記録し、保存済みワールドの建築があれば移行を中止できる。
+function makeNaturalCaveDeepPlan(w){
+ const edits=new Map(),guards=new Set();
+ const inside=(x,y,z)=>x>=0&&x<W&&y>=0&&y<H&&z>=0&&z<D;
+ const guard=(x,y,z)=>{if(inside(x,y,z))guards.add(idx(x,y,z))};
+ const air=(x,y,z)=>{if(inside(x,y,z))edits.set(idx(x,y,z),0)};
+ const put=(x,y,z,b)=>{if(inside(x,y,z))edits.set(idx(x,y,z),b)};
+ const groundTop=(x,z)=>{for(let y=H-1;y>=0;y--){const b=w[idx(x,y,z)];if(b===1||b===2||b===3||b===7)return y}return -1};
+ const carveRampCell=(x,z,floorY)=>{
+  const top=groundTop(x,z);if(top<floorY+3)return false;
+  const roof=Math.min(11,top-2);if(roof<floorY+2)return false;
+  guard(x,floorY,z);
+  for(let y=roof+1;y<=top;y++)guard(x,y,z);
+  for(let y=floorY+1;y<=roof;y++)air(x,y,z);
+  return true;
+ };
+ const carveDeepCell=(x,z)=>{
+  const top=groundTop(x,z);if(top<12)return false;
+  // 下層天井(y=8)、地表までの岩盤、床(y=3)を移行前に検査する。
+  guard(x,3,z);for(let y=8;y<=top;y++)guard(x,y,z);
+  for(let y=4;y<=7;y++)air(x,y,z);
+  return true;
+ };
+
+ // 上層の南東端(x=35,z=11)から一度南へ折れて、2セル幅の階段へ接続。
+ // x=35..37 は上層床(y=8)、その先は1セルずつ低くなる。
+ for(let x=35;x<=41;x++){
+  const floorY=x<=37?8:8-(x-37);
+  for(const z of [12,13])carveRampCell(x,z,floorY);
+ }
+
+ // 地下主広間。床はy=3、天井はy=8。上層とは階段だけでつながる。
+ for(let x=42;x<=49;x++)for(let z=7;z<=15;z++){
+  const r=((x-45.2)/4.1)**2+((z-11)/4.15)**2;
+  const wobble=(noise2(x*1.67+41,z*1.29+23)-.5)*.14;
+  if(r>1+wobble)continue;
+  carveDeepCell(x,z);
+ }
+
+ // 北へ折れる下層の通路と小部屋。主広間を見渡せない位置に隠れた横穴を作る。
+ for(let z=7;z>=5;z--)for(let x=44;x<=46;x++)carveDeepCell(x,z);
+ for(let x=42;x<=48;x++)for(let z=2;z<=6;z++){
+  const r=((x-45)/2.7)**2+((z-4)/2.15)**2;
+  const wobble=(noise2(x*2.07+13,z*1.51+37)-.5)*.14;
+  if(r>1+wobble)continue;
+  carveDeepCell(x,z);
+ }
+
+ // 壁際の結晶と金鉱脈、天井の低い岩。通路の中央と階段は塞がない。
+ for(const [x,y,z] of [[43,4,14],[43,5,14],[44,4,14]])put(x,y,z,13);
+ for(const [x,y,z] of [[49,4,11],[49,5,11],[49,4,12]])put(x,y,z,12);
+ for(const [x,y,z] of [[45,7,10],[46,7,9]])put(x,y,z,3);
+ return {edits,guards};
+}
+function makeNaturalCaveDeepEdits(w){return makeNaturalCaveDeepPlan(w).edits;}
+
 function makeNaturalCaveEditsV1(world) {
   const edits = new Map();
   const air = (x, y, z) => { if (x >= 0 && x < W && y >= 0 && y < H && z >= 0 && z < D) edits.set(idx(x, y, z), 0); };
@@ -488,21 +545,36 @@ function makeNaturalCaveEditsV1(world) {
   return edits;
 }
 function applyNaturalCave(world) {
+  // 生成前の地形から計画を作り、クライアントと同じ順序で洞窟を適用する。
+  const deep = makeNaturalCaveDeepPlan(world);
   for (const [at, block] of makeNaturalCaveEdits(world)) world[at] = block;
   for (const [at, block] of makeNaturalCaveExtensionEdits(world)) world[at] = block;
+  for (const [at, block] of deep.edits) world[at] = block;
 }
 function applyNaturalCaveSafely(world, baseline, previousVersion = 0) {
   const edits = makeNaturalCaveEdits(baseline);
   const extension = makeNaturalCaveExtensionEdits(baseline);
+  const deep = makeNaturalCaveDeepPlan(baseline);
 
-  // v2ワールドは既存洞窟を保持し、追加区画だけを未編集の場合に導入する。
-  if (previousVersion >= 2) {
-    for (const at of extension.keys()) if (world[at] !== baseline[at]) return false;
-    for (const [at, block] of extension) if (baseline[at] !== block) world[at] = block;
+  // v3ワールドには既存区画がある。下層の床・天井・予定地だけを確認して追加する。
+  if (previousVersion >= 3) {
+    for (const at of deep.guards) if (world[at] !== baseline[at]) return false;
+    for (const at of deep.edits.keys()) if (world[at] !== baseline[at]) return false;
+    for (const [at, block] of deep.edits) if (baseline[at] !== block) world[at] = block;
     return true;
   }
 
-  const allEdits = new Map([...edits, ...extension]);
+  // v2は基本洞窟までなので、拡張区画と下層を一緒に追加する。
+  if (previousVersion === 2) {
+    for (const at of extension.keys()) if (world[at] !== baseline[at]) return false;
+    for (const at of deep.guards) if (world[at] !== baseline[at]) return false;
+    for (const at of deep.edits.keys()) if (world[at] !== baseline[at]) return false;
+    for (const [at, block] of extension) if (baseline[at] !== block) world[at] = block;
+    for (const [at, block] of deep.edits) if (baseline[at] !== block) world[at] = block;
+    return true;
+  }
+
+  const allEdits = new Map([...edits, ...extension, ...deep.edits]);
   if (previousVersion === 1) {
     // v1洞窟のままかを確認してからだけ差し替える。洞窟内を誰かが編集していたら保持する。
     const oldEdits = makeNaturalCaveEditsV1(baseline);
@@ -511,12 +583,14 @@ function applyNaturalCaveSafely(world, baseline, previousVersion = 0) {
     for (const at of oldEdits.keys()) if (world[at] !== expectedOld[at]) return false;
     const oldKeys = new Set(oldEdits.keys());
     for (const at of allEdits.keys()) if (!oldKeys.has(at) && world[at] !== baseline[at]) return false;
+    for (const at of deep.guards) if (!oldKeys.has(at) && world[at] !== baseline[at]) return false;
     for (const at of oldEdits.keys()) world[at] = baseline[at];
     for (const [at, block] of allEdits) world[at] = block;
     return true;
   }
-  // v0/未導入ワールドは既存洞窟と追加区画の全予定地に編集がない場合のみ追加する。
+  // v0/未導入ワールドは全予定地が未編集の場合のみ追加する。
   for (const at of allEdits.keys()) if (world[at] !== baseline[at]) return false;
+  for (const at of deep.guards) if (world[at] !== baseline[at]) return false;
   for (const [at, block] of allEdits) if (baseline[at] !== block) world[at] = block;
   return true;
 }
