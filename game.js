@@ -730,7 +730,7 @@ function updateAmbientCritters(dt,now){
 }
 
 /* ---- 洞窟限定の敵「胞子吐き」 ---- */
-const sporeFx={creature:null,shots:new Map(),clouds:new Map(),slowUntil:0,lastAttackAt:0,lastSlowToastAt:0};
+const sporeFx={creature:null,shots:new Map(),clouds:new Map(),slowUntil:0,lastAttackAt:-Infinity,lastSlowToastAt:0,lastAttackFailToastAt:0};
 function disposeSporeObject(obj){
  if(!obj)return;const geos=new Set(),mats=new Set();obj.traverse(n=>{if(n.geometry)geos.add(n.geometry);if(n.material){if(Array.isArray(n.material))n.material.forEach(m=>mats.add(m));else mats.add(n.material)}});
  geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());if(obj.parent)obj.parent.remove(obj);
@@ -837,14 +837,32 @@ function updateSporeShooter(dt,now){
 }
 function tryAttackSporeShooter(){
  const c=sporeFx.creature;if(!c||c.hp<=0||c.mode==='defeated'||!act())return false;
- const now=performance.now();if(now-sporeFx.lastAttackAt<340)return false;
- const target=c.group.position.clone();target.y+=.92;
- const to=target.clone().sub(cam.position),along=to.dot(rd);
- if(along<0||along>2.85)return false;
- const closest=cam.position.clone().addScaledVector(rd,along);
- if(closest.distanceTo(target)>.62)return false;
- if(hit&&hit.t<along-.08)return false;
- sporeFx.lastAttackAt=now;Net.send({t:'spore-attack'});return true;
+ // 傘・胴体・根元を別々の球として照準判定し、モデルの見えている部分を狙えば攻撃できるようにする。
+ // 近接攻撃のクールダウン中も通常の描画／ブロック操作へフォールスルーさせない。
+ const base=c.group.position,parts=[
+  {y:.34,r:.39},{y:.73,r:.49},{y:1.12,r:.76},{y:1.41,r:.57}
+ ];
+ let bestEntry=Infinity,found=false;
+ for(const part of parts){
+  const target=new THREE.Vector3(base.x,base.y+part.y,base.z);
+  const along=target.clone().sub(cam.position).dot(rd);
+  if(along<=0||along>3.05)continue;
+  const closest=cam.position.clone().addScaledVector(rd,along);
+  const perp=closest.distanceTo(target);
+  if(perp>part.r)continue;
+  const entry=along-Math.sqrt(Math.max(0,part.r*part.r-perp*perp));
+  // 先にブロックへ当たる場合だけ攻撃対象から除外する。
+  if(hit&&hit.t<entry-.10)continue;
+  if(entry<bestEntry){bestEntry=entry;found=true;}
+ }
+ if(!found)return false;
+ const now=performance.now();
+ if(now-sporeFx.lastAttackAt<340)return true;
+ sporeFx.lastAttackAt=now;
+ // カーソル描画モードでは me.yaw とマウスの照準方向が異なるため、実際の照準レイの方位を送る。
+ const aimYaw=Math.atan2(-rd.x,-rd.z);
+ Net.send({t:'spore-attack',aimYaw});
+ return true;
 }
 
 /* ---- 個性を持つ別種「ひょっこりん」: 既存の3匹とは別モデル・別アニメーション ---- */
@@ -3512,7 +3530,7 @@ Net.onMsg=m=>{
    sporeFx.slowUntil=Math.max(sporeFx.slowUntil,Date.now()+ms);
    if(!wasSlow&&Date.now()-sporeFx.lastSlowToastAt>2500){toast('胞子を浴びて動きが鈍くなった');sporeFx.lastSlowToastAt=Date.now()}
    break}
-  case'spore-attack-result':if(m.hit){toast(m.defeated?'胞子吐きを倒した！':'胞子吐きに当たった！')}break;
+  case'spore-attack-result':if(m.hit){toast(m.defeated?'胞子吐きを倒した！':`胞子吐きに命中（残り${m.hp}/${m.maxHp}）`)}else if(Date.now()-sporeFx.lastAttackFailToastAt>1400){toast('攻撃が届かなかった。近づいて傘か胴体を狙ってください');sporeFx.lastAttackFailToastAt=Date.now()}break;
   case'disaster-state':applyDisastersEnabled(m.enabled===true,true);if(m.activeDisaster)startDisasterEffect(m.activeDisaster);else if(!m.enabled)stopDisasterEffect();break;
   case'disaster-event':if(disastersEnabled)startDisasterEffect(m);break;
   case'disaster-ended':stopDisasterEffect(m.id);break;

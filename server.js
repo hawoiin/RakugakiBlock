@@ -3065,9 +3065,15 @@ wss.on('connection', (ws, req) => {
         const horizontal = Math.hypot(dx, dz);
         const vertical = Math.abs((me.pos[1] + 1.0) - (c.y + 0.8));
         const targetYaw = Math.atan2(-dx, -dz);
-        const yawDiff = Math.atan2(Math.sin(targetYaw - (Number(me.yaw) || 0)), Math.cos(targetYaw - (Number(me.yaw) || 0)));
-        // 近距離・正面からのみ命中。リクエスト値ではなくサーバーのプレイヤー座標を使う。
-        const valid = horizontal <= 2.8 && vertical <= 1.8 && Math.abs(yawDiff) <= 0.72 &&
+        // カーソル描画モードではプレイヤー本体の yaw とマウス照準が一致しないため、照準方向を使う。
+        // 古いクライアントから aimYaw が届かない場合は従来どおり me.yaw を使う。
+        const aimYaw = typeof m.aimYaw === 'number' && Number.isFinite(m.aimYaw) ? m.aimYaw : (Number(me.yaw) || 0);
+        const yawDiff = Math.atan2(Math.sin(targetYaw - aimYaw), Math.cos(targetYaw - aimYaw));
+        const clearShot = sporeLineClear(room,
+          { x: me.pos[0], y: me.pos[1] + 1.48, z: me.pos[2] },
+          { x: c.x, y: c.y + 0.96, z: c.z });
+        // 近距離・照準が向いており、壁などに遮られていない場合だけ命中。
+        const valid = horizontal <= 2.8 && vertical <= 1.8 && Math.abs(yawDiff) <= 0.72 && clearShot &&
           playerIsInNaturalCave(room, me) && now - (c.lastHitAt || 0) >= 180;
         if (!valid) { send({ t: 'spore-attack-result', hit: false }); break; }
         c.lastHitAt = now;
