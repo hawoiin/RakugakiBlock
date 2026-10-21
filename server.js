@@ -31,7 +31,7 @@ const PORT = process.env.PORT || 3040;
 /** 未設定なら管理者機能オフ（ソースに既定合言葉は置かない） */
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
-const VER = 13; // クライアント互換用プロトコル番号。洞窟バージョンは別管理
+const VER = 14; // ペン突き通信を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
 const NATURAL_CAVE_VERSION = 2;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
@@ -1721,7 +1721,7 @@ function createSporeShooter(room) {
   const now = Date.now();
   return { id: 'spore-shooter-cave-1', ...spot, yaw: Math.PI / 2,
     mode: 'idle', hp: 3, maxHp: 3, modeUntil: 0, nextAttackAt: now + 5000,
-    targetId: null, lastHitAt: 0, defeatedUntil: 0 };
+    targetId: null, lastPokeAt: 0, defeatedUntil: 0 };
 }
 function playerIsInNaturalCave(room, player) {
   if (!hasNaturalCaveForSpore(room) || !player || !Array.isArray(player.pos) || player.pos.length < 3 || !player.pos.every(Number.isFinite)) return false;
@@ -3055,37 +3055,39 @@ wss.on('connection', (ws, req) => {
         }
         break;
       }
-      case 'spore-attack': {
-        if (!rateOk(rateChat, playerId + ':spore-attack', 5, 1000)) break;
+      case 'spore-poke': {
+        if (!rateOk(rateChat, playerId + ':spore-poke', 3, 1000)) break;
         const c = room.sporeShooter, now = Date.now();
+        // 武器・ブロックでの攻撃は受け付けない。実際に色付きペンを使っている要求だけを許可する。
+        if (m.tool !== 'pen' || !Number.isInteger(m.color) || m.color <= 0) {
+          send({ t: 'spore-poke-result', hit: false, reason: 'tool' }); break;
+        }
         if (!c || c.hp <= 0 || c.mode === 'defeated' || !Array.isArray(me.pos) || me.pos.length < 3 || !me.pos.every(Number.isFinite)) {
-          send({ t: 'spore-attack-result', hit: false }); break;
+          send({ t: 'spore-poke-result', hit: false, reason: 'unavailable' }); break;
         }
         const dx = c.x - me.pos[0], dz = c.z - me.pos[2];
         const horizontal = Math.hypot(dx, dz);
         const vertical = Math.abs((me.pos[1] + 1.0) - (c.y + 0.8));
         const targetYaw = Math.atan2(-dx, -dz);
-        // カーソル描画モードではプレイヤー本体の yaw とマウス照準が一致しないため、照準方向を使う。
-        // 古いクライアントから aimYaw が届かない場合は従来どおり me.yaw を使う。
         const aimYaw = typeof m.aimYaw === 'number' && Number.isFinite(m.aimYaw) ? m.aimYaw : (Number(me.yaw) || 0);
         const yawDiff = Math.atan2(Math.sin(targetYaw - aimYaw), Math.cos(targetYaw - aimYaw));
+        const inCave = playerIsInNaturalCave(room, me);
         const clearShot = sporeLineClear(room,
           { x: me.pos[0], y: me.pos[1] + 1.48, z: me.pos[2] },
           { x: c.x, y: c.y + 0.96, z: c.z });
-        // 近距離・照準が向いており、壁などに遮られていない場合だけ命中。
-        const valid = horizontal <= 2.8 && vertical <= 1.8 && Math.abs(yawDiff) <= 0.72 && clearShot &&
-          playerIsInNaturalCave(room, me) && now - (c.lastHitAt || 0) >= 180;
-        if (!valid) { send({ t: 'spore-attack-result', hit: false }); break; }
-        c.lastHitAt = now;
-        c.hp = Math.max(0, c.hp - 1);
-        if (c.hp <= 0) {
-          c.mode = 'defeated'; c.modeUntil = 0; c.defeatedUntil = now + 30000; c.targetId = null;
-          room.sporeShots = [];
-          createSporeCloud(room, c.x, c.y + 0.35, c.z, now, false);
-        } else {
-          c.mode = 'hit'; c.modeUntil = now + 230; c.targetId = null; c.nextAttackAt = now + 900;
+        const valid = horizontal <= 2.8 && vertical <= 1.8 && Math.abs(yawDiff) <= 0.72 && clearShot && inCave;
+        if (!valid) {
+          const reason = !inCave ? 'cave' : horizontal > 2.8 ? 'far' : !clearShot ? 'blocked' : 'aim';
+          send({ t: 'spore-poke-result', hit: false, reason }); break;
         }
-        send({ t: 'spore-attack-result', hit: true, hp: c.hp, maxHp: c.maxHp, defeated: c.hp <= 0 });
+        // ペン突きはダメージを与えず、短いひるみだけを発生させる。連打で永久停止しないよう敵側に間隔を設ける。
+        if (now - (c.lastPokeAt || 0) < 1100) {
+          send({ t: 'spore-poke-result', hit: false, reason: 'recovering' }); break;
+        }
+        c.lastPokeAt = now;
+        c.mode = 'hit'; c.modeUntil = now + 760; c.targetId = null; c.nextAttackAt = now + 1700;
+        send({ t: 'spore-poke-result', hit: true, stunned: true });
+        room.broadcast({ t: 'spore-poke-action', id: playerId });
         broadcastSporeState(room);
         break;
       }

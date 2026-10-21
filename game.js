@@ -1,7 +1,7 @@
 /* フェーズ2: WebSocketサーバー方式。PeerJSは不要 */
 (()=>{
 const $=id=>document.getElementById(id);
-const W=64,H=32,D=64,AT=1024,TS=32,PER=AT/TS,PAINT_PAGE_COUNT=4,PAINT_SLOTS_PER_PAGE=PER*PER,MAX_PAINT_SLOTS=PAINT_PAGE_COUNT*PAINT_SLOTS_PER_PAGE,VER=13,WORLD_FORMAT_VER=7;
+const W=64,H=32,D=64,AT=1024,TS=32,PER=AT/TS,PAINT_PAGE_COUNT=4,PAINT_SLOTS_PER_PAGE=PER*PER,MAX_PAINT_SLOTS=PAINT_PAGE_COUNT*PAINT_SLOTS_PER_PAGE,VER=14,WORLD_FORMAT_VER=7;
 const WORLD_CELLS=W*H*D,MAX_WORLD_KEYS=4096,MAX_WORLD_DATA_CHARS=2*1024*1024,MAX_WORLD_MESSAGE_BYTES=4*1024*1024;
 let BN=['草','土','石','木','白','レンガ','砂','水','葉','ガラス','黒','金','氷','スライム'],BH=[0x6aa84f,0x866043,0x828286,0xa07846,0xf0f0ec,0xb2483c,0xe2d096,0x3a8fd0,0x3d8b40,0xa8d4e8,0x2c2c2c,0xd4a017,0x9fd9ef,0x8bcf4a];
 const PAL=['#e53935','#fb8c00','#fdd835','#7cb342','#2e7d32','#00acc1','#1e88e5','#3949ab','#8e24aa','#d81b60','#6d4c41','#ffffff','#bdbdbd','#757575','#212121','#ffccbc'];
@@ -730,7 +730,7 @@ function updateAmbientCritters(dt,now){
 }
 
 /* ---- 洞窟限定の敵「胞子吐き」 ---- */
-const sporeFx={creature:null,shots:new Map(),clouds:new Map(),slowUntil:0,lastAttackAt:-Infinity,lastSlowToastAt:0,lastAttackFailToastAt:0};
+const sporeFx={creature:null,shots:new Map(),clouds:new Map(),slowUntil:0,lastPokeAt:-Infinity,lastSlowToastAt:0,lastPokeToastAt:0};
 function disposeSporeObject(obj){
  if(!obj)return;const geos=new Set(),mats=new Set();obj.traverse(n=>{if(n.geometry)geos.add(n.geometry);if(n.material){if(Array.isArray(n.material))n.material.forEach(m=>mats.add(m));else mats.add(n.material)}});
  geos.forEach(g=>g.dispose());mats.forEach(m=>m.dispose());if(obj.parent)obj.parent.remove(obj);
@@ -738,7 +738,7 @@ function disposeSporeObject(obj){
 function sporeMat(color,opts={}){return new THREE.MeshBasicMaterial({color,transparent:!!opts.transparent,opacity:opts.opacity==null?1:opts.opacity,depthWrite:opts.depthWrite!==false,side:opts.side||THREE.FrontSide});}
 function makeSporeShooterModel(){
  const root=new THREE.Group(),body=new THREE.Group();root.add(body);
- const mats={body:sporeMat(0x85836f),bodyLight:sporeMat(0xa5a087),root:sporeMat(0x625f4d),cap:sporeMat(0x68764a),under:sporeMat(0x3b4430),spot:sporeMat(0xc2b88e),eye:sporeMat(0xc9ff83),pupil:sporeMat(0x20291c),sac:sporeMat(0x526a3c)};
+ const mats={body:sporeMat(0x85836f),bodyLight:sporeMat(0xa5a087),root:sporeMat(0x625f4d),cap:sporeMat(0x68764a,{side:THREE.DoubleSide}),under:sporeMat(0x3b4430),spot:sporeMat(0xc2b88e),eye:sporeMat(0xc9ff83),pupil:sporeMat(0x20291c),sac:sporeMat(0x526a3c)};
  const mesh=(geo,mat,pos,scale,rot)=>{const m=new THREE.Mesh(geo,mat);m.position.set(...pos);if(scale)m.scale.set(...scale);if(rot)m.rotation.set(...rot);body.add(m);return m};
  const base=mesh(new THREE.DodecahedronGeometry(.32,0),mats.body,[0,.31,0],[1,.78,1.05]);
  const trunk=mesh(new THREE.CylinderGeometry(.20,.29,.56,7,1),mats.bodyLight,[0,.66,.015],[1,1,1],[0,0,-.07]);
@@ -749,7 +749,18 @@ function makeSporeShooterModel(){
  mesh(new THREE.DodecahedronGeometry(.13,0),mats.sac,[0,.69,.24],[1.15,.86,1]);
  // 低ポリで左右非対称な傘。上半球と厚みのある裏側を分け、横から見てもキノコの傘に見えるようにする。
  const cap=mesh(new THREE.SphereGeometry(.62,9,5,0,Math.PI*2,0,Math.PI*.59),mats.cap,[0,1.16,0],[1.12,.62,1],[0,0,-.12]);
- mesh(new THREE.CylinderGeometry(.39,.49,.105,9,1),mats.under,[.015,1.135,.005],[1.03,1,.98],[0,0,-.12]);
+ // 傘の縁まで届く薄い裏面を作り、下から見た際に外周が抜けないようにする。
+ // 上面はドームに少し重ね、側面に細い厚みを残す。外形のシルエットは変えない。
+ mesh(new THREE.CylinderGeometry(.62,.65,.07,9,1),mats.under,[0,1.075,.005],[1.02,1,.94],[0,0,-.12]);
+ // 裏面の放射状のひだ。単一 LineSegments にまとめて描画負荷を抑える。
+ const gillPoints=[];
+ for(let i=0;i<12;i++){
+  const a=i*Math.PI*2/12,ca=Math.cos(a),sa=Math.sin(a);
+  gillPoints.push(ca*.12,0,sa*.12,ca*.585,0,sa*.585);
+ }
+ const gillGeo=new THREE.BufferGeometry();gillGeo.setAttribute('position',new THREE.Float32BufferAttribute(gillPoints,3));
+ const gills=new THREE.LineSegments(gillGeo,new THREE.LineBasicMaterial({color:0x566345}));
+ gills.position.set(0,1.038,.005);gills.rotation.z=-.12;body.add(gills);
  // 傘の斑点は上側に沈め、平面ステッカーのように浮かせない。
  const spots=[[-.27,1.39,-.12,.075],[.13,1.48,-.04,.065],[.35,1.34,-.08,.055],[-.02,1.35,.24,.048],[-.36,1.29,.12,.05]];
  for(const [x,y,z,r] of spots)mesh(new THREE.DodecahedronGeometry(r,0),mats.spot,[x,y,z],[1,.46,1],[.1,.2,.1]);
@@ -835,8 +846,8 @@ function updateSporeShooter(dt,now){
   const motes=c.group.userData.motes||[];for(const mote of motes){const ph=now*.0011+mote.userData.phase;mote.position.set(Math.cos(ph)*mote.userData.r,.22+Math.sin(ph*1.25)*.24,Math.sin(ph)*mote.userData.r);mote.visible=envelope>.18&&c.toxic}
  }
 }
-function tryAttackSporeShooter(){
- const c=sporeFx.creature;if(!c||c.hp<=0||c.mode==='defeated'||!act())return false;
+function tryPokeSporeShooter(){
+ const c=sporeFx.creature;if(!isPen()||cur===0||!c||c.hp<=0||c.mode==='defeated'||!act())return false;
  // 傘・胴体・根元を別々の球として照準判定し、モデルの見えている部分を狙えば攻撃できるようにする。
  // 近接攻撃のクールダウン中も通常の描画／ブロック操作へフォールスルーさせない。
  const base=c.group.position,parts=[
@@ -857,11 +868,12 @@ function tryAttackSporeShooter(){
  }
  if(!found)return false;
  const now=performance.now();
- if(now-sporeFx.lastAttackAt<340)return true;
- sporeFx.lastAttackAt=now;
- // カーソル描画モードでは me.yaw とマウスの照準方向が異なるため、実際の照準レイの方位を送る。
+ if(now-sporeFx.lastPokeAt<1050)return true;
+ sporeFx.lastPokeAt=now;
+ // ペンで突く行為だけを送る。消しゴム(cur===0)とブロック選択時はここへ入らない。
+ // カーソル描画モードでも、実際の照準レイの方向をサーバーへ伝える。
  const aimYaw=Math.atan2(-rd.x,-rd.z);
- Net.send({t:'spore-attack',aimYaw});
+ Net.send({t:'spore-poke',aimYaw,tool:'pen',color:cur});
  return true;
 }
 
@@ -3002,6 +3014,11 @@ function skinTex(a,w,h,base,eyes){
  else if(eyes){x.fillStyle='#333';eyes.forEach(r=>x.fillRect(...r))}
  const t=new THREE.CanvasTexture(c);t.magFilter=t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;return t;
 }
+// ペン突き演出用の共有ジオメトリ。通常時は非表示なので、既存アバターの見た目は変わらない。
+const pokePenShaftGeo=new THREE.CylinderGeometry(.012,.016,.29,5);
+const pokePenTipGeo=new THREE.ConeGeometry(.019,.065,5);
+const pokePenBodyMat=new THREE.MeshBasicMaterial({color:0xd2b366});
+const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
 function makeAvatar(sk,col){
  const M=c=>new THREE.MeshBasicMaterial({color:c}),T=t=>new THREE.MeshBasicMaterial({map:t,transparent:false});
  const limb=sk?sk.limb:col,headPart=sk?(sk.headPart|0):0,root=new THREE.Group();
@@ -3325,7 +3342,12 @@ function makeAvatar(sk,col){
  const shoeMat=M(0x82796a),footH=.18,footY=-(legLen+footH/2);
  const footL=box(.185,footH,.22,shoeMat,footY,.035),footR=box(.185,footH,.22,shoeMat,footY,.035);
  footL.position.z=-.05;footR.position.z=-.05;legL.add(footL);legR.add(footR);
- return{root,head,torso:torsoPivot,armL,armR,legL,legR,footL,footR,t:0,crouchMix:0,emo:null,heart:null,g:null};
+ // 手の先に短い鉛筆を付け、突く瞬間だけ表示する。腕を前へ伸ばすと自然に敵の方向を向く。
+ const pokePen=new THREE.Group();pokePen.visible=false;
+ const pokeShaft=new THREE.Mesh(pokePenShaftGeo,pokePenBodyMat);pokeShaft.position.set(0,-.52,0);pokePen.add(pokeShaft);
+ const pokeTip=new THREE.Mesh(pokePenTipGeo,pokePenTipMat);pokeTip.position.set(0,-.69,0);pokeTip.rotation.z=Math.PI;pokePen.add(pokeTip);
+ armR.add(pokePen);
+ return{root,head,torso:torsoPivot,armL,armR,legL,legR,footL,footR,pokePen,pokeAt:0,t:0,crouchMix:0,emo:null,heart:null,g:null};
 }
 const HEAD_YAW_LIMIT=.48;       // 左右約27.5度
 const HEAD_PITCH_UP=.34;        // 上向き約19.5度
@@ -3382,8 +3404,11 @@ function animAv(a,dt,speed,crouching=false,lookYaw=0,lookPitch=0){
  }
  a.head.rotation.y=a.lookYaw;
  a.head.rotation.x=clamp(nod+crouch*.20+a.lookPitch,-.50,.50);
- a.armL.rotation.x=aL+crouch*.36;a.armR.rotation.x=aR+crouch*.36;
+ const pokeElapsed=a.pokeAt?((performance.now()-a.pokeAt)/360):2;
+ const pokeMix=pokeElapsed>=0&&pokeElapsed<1?Math.sin(Math.PI*pokeElapsed):0;
+ a.armL.rotation.x=aL+crouch*.36-pokeMix*.12;a.armR.rotation.x=aR+crouch*.36+pokeMix*1.28;
  a.armL.rotation.z=-crouch*.055;a.armR.rotation.z=crouch*.055;
+ if(a.pokePen)a.pokePen.visible=pokeMix>.12;
  const crouchLeg=crouch*.28,hipY=.66-crouch*.04;
  const settleFoot=(leg,foot,legSwing)=>{
   // 脚の付け根は胴体のローカル座標で設定し、ワールド上の高さをhipYに保つ。
@@ -3530,7 +3555,17 @@ Net.onMsg=m=>{
    sporeFx.slowUntil=Math.max(sporeFx.slowUntil,Date.now()+ms);
    if(!wasSlow&&Date.now()-sporeFx.lastSlowToastAt>2500){toast('胞子を浴びて動きが鈍くなった');sporeFx.lastSlowToastAt=Date.now()}
    break}
-  case'spore-attack-result':if(m.hit){toast(m.defeated?'胞子吐きを倒した！':`胞子吐きに命中（残り${m.hp}/${m.maxHp}）`)}else if(Date.now()-sporeFx.lastAttackFailToastAt>1400){toast('攻撃が届かなかった。近づいて傘か胴体を狙ってください');sporeFx.lastAttackFailToastAt=Date.now()}break;
+  case'spore-poke-result':
+   if(m.hit){if(selfAv)selfAv.pokeAt=performance.now();toast('ペンで突いて胞子吐きがひるんだ！')}
+   else if(Date.now()-sporeFx.lastPokeToastAt>1400){
+    const msg=m.reason==='tool'?'ペンを選んでいるときだけ使えます':m.reason==='far'?'もう少し近づいてください':m.reason==='blocked'?'障害物があって届きません':m.reason==='recovering'?'胞子吐きはまだひるんでいます':m.reason==='cave'?'洞窟の中でだけ使えます':'胞子吐きに照準を合わせてください';
+    toast(msg);sporeFx.lastPokeToastAt=Date.now();
+   }
+   break;
+  case'spore-poke-action':{
+   if(m.id!==Net.id){const o=others.get(m.id);if(o&&o.av)o.av.pokeAt=performance.now()}
+   break;
+  }
   case'disaster-state':applyDisastersEnabled(m.enabled===true,true);if(m.activeDisaster)startDisasterEffect(m.activeDisaster);else if(!m.enabled)stopDisasterEffect();break;
   case'disaster-event':if(disastersEnabled)startDisasterEffect(m);break;
   case'disaster-ended':stopDisasterEffect(m.id);break;
@@ -3883,7 +3918,7 @@ addEventListener('pointerdown',e=>{
  if(armPick(e))return;
  if(e.button===2&&hit&&isPhoneStationBlock(hit.x,hit.y,hit.z)){e.preventDefault();openPhoneGameAtStation();return}
  // 敵を照準で捉えた近距離クリックだけ攻撃に変え、それ以外の設置・描画操作は維持する。
- if(e.button===0&&tryAttackSporeShooter()){e.preventDefault();return}
+ if(e.button===0&&tryPokeSporeShooter()){e.preventDefault();return}
  // カーソル描き: 右クリック／Alt+ドラッグで視点移動。消しは Shift+左 or 中ボタン
  if((e.button===2||e.altKey)&&cm()){panning=true;e.preventDefault();return}
  if(e.altKey&&!cm()){panning=true;return}
@@ -4496,9 +4531,8 @@ function hold(id,on,off){const b=$(id),u=()=>off&&off();b.addEventListener('poin
 const rel=()=>{drawing=null;lastPix=null;delHeld=false};
 hold('bJump',()=>keys.Space=true,()=>keys.Space=false);
 hold('bCrouch',()=>{keys.crouchTouch=true;const b=$('bCrouch');if(b)b.classList.add('on')},()=>{keys.crouchTouch=false;const b=$('bCrouch');if(b)b.classList.remove('on')});
-hold('bAct',()=>{if(hit&&isPhoneStationBlock(hit.x,hit.y,hit.z)){openPhoneGameAtStation();return}if(requestForestResidentTalk())return;if(requestWiseCharacterTalk())return;if(tryAttackSporeShooter())return;if(isPen()){drawHeld=true;drawing=cur;lastPix=null}else{placeHeld=true;placeAcc=0;placeLockAxis=null;placeOkCount=0;place()}},()=>{drawHeld=false;placeHeld=false;placeAcc=0;placeLockAxis=null;placeOkCount=0;drawing=null;lastPix=null;setInfo()});
+hold('bAct',()=>{if(hit&&isPhoneStationBlock(hit.x,hit.y,hit.z)){openPhoneGameAtStation();return}if(requestForestResidentTalk())return;if(requestWiseCharacterTalk())return;if(tryPokeSporeShooter())return;if(isPen()){drawHeld=true;drawing=cur;lastPix=null}else{placeHeld=true;placeAcc=0;placeLockAxis=null;placeOkCount=0;place()}},()=>{drawHeld=false;placeHeld=false;placeAcc=0;placeLockAxis=null;placeOkCount=0;drawing=null;lastPix=null;setInfo()});
 hold('bDel',()=>{
- if(tryAttackSporeShooter())return;
  if(isPen()){delHeld=true;drawing=0;lastPix=null}
  else if(hit)tryStartBreak(hit.x,hit.y,hit.z);
  else{breakHeld=true;breakAcc=0;breakTarget=null}
