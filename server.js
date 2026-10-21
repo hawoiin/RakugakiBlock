@@ -31,7 +31,7 @@ const PORT = process.env.PORT || 3040;
 /** 未設定なら管理者機能オフ（ソースに既定合言葉は置かない） */
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
-const VER = 14; // ペン突き通信を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
+const VER = 15; // 胞子吐きの歩行状態を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
 const NATURAL_CAVE_VERSION = 3;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
@@ -1794,12 +1794,101 @@ function createSporeShooter(room) {
   const now = Date.now();
   return { id: 'spore-shooter-cave-1', ...spot, yaw: Math.PI / 2,
     mode: 'idle', hp: 3, maxHp: 3, modeUntil: 0, nextAttackAt: now + 5000,
-    targetId: null, lastPokeAt: 0, defeatedUntil: 0 };
+    targetId: null, lastPokeAt: 0, defeatedUntil: 0,
+    wanderPath: [], wanderIndex: 0, nextWanderAt: now + 1600 + Math.random() * 1200, lastWanderGoal: null };
+}
+// 胞子吐きの移動範囲は生成済み洞窟の座標内だけ。実際の床・天井・障害物を毎回検査する。
+function sporeWalkCell(room, x, z) {
+  if (!Number.isInteger(x) || !Number.isInteger(z) || x < 2 || x > 37 || z < 2 || z > 17) return false;
+  if (!sporeSolidBlock(room.world[idx(x, 8, z)]) || room.world[idx(x, 9, z)] !== 0 || room.world[idx(x, 10, z)] !== 0) return false;
+  // 天井が近くにあるセルだけを洞窟として扱い、地上へ迷い出る経路を防ぐ。
+  for (let y = 11; y <= 17; y++) if (sporeSolidBlock(room.world[idx(x, y, z)])) return true;
+  return false;
+}
+function startSporeWander(room, c, now) {
+  const sx = Math.floor(c.x), sz = Math.floor(c.z);
+  if (!sporeWalkCell(room, sx, sz)) {
+    c.wanderPath = []; c.wanderIndex = 0; c.mode = 'idle';
+    c.nextWanderAt = now + 1200;
+    return false;
+  }
+  // まず近距離の到達可能マスを列挙。障害物を貫通せず、通路をたどれる目的地だけ選ぶ。
+  const reachable = [], queue = [[sx, sz]], distances = new Map([[`${sx},${sz}`, 0]]), previous = new Map([[`${sx},${sz}`, null]]);
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (let head = 0; head < queue.length; head++) {
+    const [x, z] = queue[head], key = `${x},${z}`, distance = distances.get(key);
+    for (const [dx, dz] of dirs) {
+      const nx = x + dx, nz = z + dz, nk = `${nx},${nz}`;
+      if (distances.has(nk) || !sporeWalkCell(room, nx, nz)) continue;
+      distances.set(nk, distance + 1); previous.set(nk, key); queue.push([nx, nz]);
+    }
+  }
+  for (const [key, distance] of distances) {
+    if (distance >= 4 && distance <= 13 && key !== c.lastWanderGoal) reachable.push(key);
+  }
+  // 曲がり角や分岐の多い洞窟でも止まり続けないよう、候補が少ない場合は距離制限を緩める。
+  if (!reachable.length) {
+    for (const [key, distance] of distances) if (distance >= 2 && key !== c.lastWanderGoal) reachable.push(key);
+  }
+  if (!reachable.length) {
+    c.wanderPath = []; c.wanderIndex = 0; c.mode = 'idle'; c.nextWanderAt = now + 1800;
+    return false;
+  }
+  const goal = reachable[Math.floor(Math.random() * reachable.length)];
+  const reversed = [];
+  for (let at = goal; at !== null; at = previous.get(at)) {
+    const [x, z] = at.split(',').map(Number); reversed.push({ x: x + 0.5, z: z + 0.5 });
+  }
+  c.wanderPath = reversed.reverse(); c.wanderIndex = 1; c.lastWanderGoal = goal;
+  if (c.wanderPath.length <= 1) {
+    c.mode = 'idle'; c.nextWanderAt = now + 1500;
+    return false;
+  }
+  c.mode = 'walk'; c.modeUntil = 0;
+  return true;
+}
+function tickSporeWander(room, c, dt, now) {
+  if (c.mode === 'idle') {
+    if (now >= (c.nextWanderAt || 0)) startSporeWander(room, c, now);
+    return;
+  }
+  if (c.mode !== 'walk') return;
+  if (!Array.isArray(c.wanderPath) || c.wanderIndex >= c.wanderPath.length) {
+    c.mode = 'idle'; c.wanderPath = []; c.wanderIndex = 0;
+    c.nextWanderAt = now + 1100 + Math.random() * 1900;
+    return;
+  }
+  const target = c.wanderPath[c.wanderIndex], gx = Math.floor(target.x), gz = Math.floor(target.z);
+  if (!sporeWalkCell(room, gx, gz)) {
+    // プレイヤーが通路を塞いだ場合は停止して再経路探索。壁をすり抜けない。
+    c.mode = 'idle'; c.wanderPath = []; c.wanderIndex = 0; c.nextWanderAt = now + 500 + Math.random() * 500;
+    return;
+  }
+  const dx = target.x - c.x, dz = target.z - c.z, distance = Math.hypot(dx, dz);
+  if (distance < 0.035) {
+    c.x = target.x; c.z = target.z; c.wanderIndex++;
+    if (c.wanderIndex >= c.wanderPath.length) {
+      c.mode = 'idle'; c.wanderPath = []; c.wanderIndex = 0;
+      c.nextWanderAt = now + 1200 + Math.random() * 2200;
+    }
+    return;
+  }
+  const step = Math.min(distance, 0.68 * dt);
+  c.x += dx / distance * step; c.z += dz / distance * step;
+  c.y = 9.02;
+  c.yaw = Math.atan2(-dx, -dz);
+  if (step >= distance - 0.035) {
+    c.x = target.x; c.z = target.z; c.wanderIndex++;
+    if (c.wanderIndex >= c.wanderPath.length) {
+      c.mode = 'idle'; c.wanderPath = []; c.wanderIndex = 0;
+      c.nextWanderAt = now + 1200 + Math.random() * 2200;
+    }
+  }
 }
 function playerIsInNaturalCave(room, player) {
   if (!hasNaturalCaveForSpore(room) || !player || !Array.isArray(player.pos) || player.pos.length < 3 || !player.pos.every(Number.isFinite)) return false;
   const [px, py, pz] = player.pos;
-  if (px < 1.5 || px > 37.5 || pz < 2.5 || pz > 13.5 || py < 8.65 || py > 11.85) return false;
+  if (px < 1.5 || px > 37.5 || pz < 2.5 || pz > 18.5 || py < 8.65 || py > 11.85) return false;
   const x = Math.floor(px), z = Math.floor(pz), floorY = Math.floor(py - 0.08), bodyY = Math.floor(py + 0.25), headY = Math.floor(py + 1.15);
   if (x < 0 || z < 0 || floorY < 0 || headY >= H) return false;
   return sporeSolidBlock(room.world[idx(x, floorY, z)]) &&
@@ -1864,20 +1953,25 @@ function tickSporeShooter(room, dt, now) {
     if (!target || Math.hypot(target[1].pos[0] - c.x, target[1].pos[2] - c.z) > 9 ||
         !sporeLineClear(room, { x: c.x, y: c.y + 1.03, z: c.z }, { x: target[1].pos[0], y: target[1].pos[1] + 1.0, z: target[1].pos[2] })) {
       c.mode = 'idle'; c.targetId = null; c.nextAttackAt = now + 650;
+      c.wanderPath = []; c.wanderIndex = 0; c.nextWanderAt = now + 700;
     } else {
       const dx = target[1].pos[0] - c.x, dz = target[1].pos[2] - c.z;
       c.yaw = Math.atan2(-dx, -dz);
       if (now >= c.modeUntil) {
         spawnSporeProjectile(room, c, target[1], now);
         c.mode = 'spit'; c.modeUntil = now + 360; c.nextAttackAt = now + 2900; c.targetId = null;
+        c.wanderPath = []; c.wanderIndex = 0; c.nextWanderAt = now + 750;
       }
     }
-  } else if (c.mode === 'idle' && nearest && nearestD <= 8.0 && now >= c.nextAttackAt &&
+  } else if ((c.mode === 'idle' || c.mode === 'walk') && nearest && nearestD <= 8.0 && now >= c.nextAttackAt &&
       sporeLineClear(room, { x: c.x, y: c.y + 1.03, z: c.z }, { x: nearest.player.pos[0], y: nearest.player.pos[1] + 1.0, z: nearest.player.pos[2] })) {
     const dx = nearest.player.pos[0] - c.x, dz = nearest.player.pos[2] - c.z;
     c.yaw = Math.atan2(-dx, -dz); c.targetId = nearest.id;
     c.mode = 'aim'; c.modeUntil = now + 1000;
+    c.wanderPath = []; c.wanderIndex = 0;
   }
+  // 洞窟内にプレイヤーがいる間だけゆっくり徘徊。壁・天井・床の現在の状態を見て経路を作る。
+  if (entries.length && (c.mode === 'idle' || c.mode === 'walk')) tickSporeWander(room, c, dt, now);
 
   // サーバー上で胞子弾を進め、ブロック・プレイヤーへ触れたら胞子雲へ変える。
   const remainingShots = [];
@@ -3159,6 +3253,7 @@ wss.on('connection', (ws, req) => {
         }
         c.lastPokeAt = now;
         c.mode = 'hit'; c.modeUntil = now + 760; c.targetId = null; c.nextAttackAt = now + 1700;
+        c.wanderPath = []; c.wanderIndex = 0; c.nextWanderAt = now + 1500;
         send({ t: 'spore-poke-result', hit: true, stunned: true });
         room.broadcast({ t: 'spore-poke-action', id: playerId });
         broadcastSporeState(room);
@@ -3173,7 +3268,7 @@ wss.on('connection', (ws, req) => {
           const bodyYaw = Number.isFinite(m.by) ? m.by : me.yaw;
           const headYaw = Number.isFinite(m.hy) ? Math.max(-0.48, Math.min(0.48, m.hy)) : null;
           const viewPitch = Number.isFinite(m.pitch) ? Math.max(-1.5, Math.min(1.5, m.pitch)) : 0;
-          room.broadcast({ t: 'pos', id: playerId, p: me.pos, y: me.yaw, by: bodyYaw, ...(headYaw === null ? {} : { hy: headYaw }), pitch: viewPitch, crouch: m.crouch === true }, playerId);
+          room.broadcast({ t: 'pos', id: playerId, p: me.pos, y: me.yaw, by: bodyYaw, ...(headYaw === null ? {} : { hy: headYaw }), pitch: viewPitch, crouch: m.crouch === true, heldPen: m.heldPen === true }, playerId);
         }
         break;
       }

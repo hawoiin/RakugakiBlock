@@ -1,7 +1,7 @@
 /* フェーズ2: WebSocketサーバー方式。PeerJSは不要 */
 (()=>{
 const $=id=>document.getElementById(id);
-const W=64,H=32,D=64,AT=1024,TS=32,PER=AT/TS,PAINT_PAGE_COUNT=4,PAINT_SLOTS_PER_PAGE=PER*PER,MAX_PAINT_SLOTS=PAINT_PAGE_COUNT*PAINT_SLOTS_PER_PAGE,VER=14,WORLD_FORMAT_VER=7;
+const W=64,H=32,D=64,AT=1024,TS=32,PER=AT/TS,PAINT_PAGE_COUNT=4,PAINT_SLOTS_PER_PAGE=PER*PER,MAX_PAINT_SLOTS=PAINT_PAGE_COUNT*PAINT_SLOTS_PER_PAGE,VER=15,WORLD_FORMAT_VER=7;
 const WORLD_CELLS=W*H*D,MAX_WORLD_KEYS=4096,MAX_WORLD_DATA_CHARS=2*1024*1024,MAX_WORLD_MESSAGE_BYTES=4*1024*1024;
 let BN=['草','土','石','木','白','レンガ','砂','水','葉','ガラス','黒','金','氷','スライム'],BH=[0x6aa84f,0x866043,0x828286,0xa07846,0xf0f0ec,0xb2483c,0xe2d096,0x3a8fd0,0x3d8b40,0xa8d4e8,0x2c2c2c,0xd4a017,0x9fd9ef,0x8bcf4a];
 const PAL=['#e53935','#fb8c00','#fdd835','#7cb342','#2e7d32','#00acc1','#1e88e5','#3949ab','#8e24aa','#d81b60','#6d4c41','#ffffff','#bdbdbd','#757575','#212121','#ffccbc'];
@@ -805,9 +805,11 @@ function makeSporeShooterModel(){
  const mesh=(geo,mat,pos,scale,rot)=>{const m=new THREE.Mesh(geo,mat);m.position.set(...pos);if(scale)m.scale.set(...scale);if(rot)m.rotation.set(...rot);body.add(m);return m};
  const base=mesh(new THREE.DodecahedronGeometry(.32,0),mats.body,[0,.31,0],[1,.78,1.05]);
  const trunk=mesh(new THREE.CylinderGeometry(.20,.29,.56,7,1),mats.bodyLight,[0,.66,.015],[1,1,1],[0,0,-.07]);
+ const legs=[];
  for(let i=0;i<4;i++){
   const a=i*Math.PI/2+.25,x=Math.sin(a)*.23,z=Math.cos(a)*.23;
-  mesh(new THREE.ConeGeometry(.12,.27,5),mats.root,[x,.12,z],[1,.72,1],[Math.cos(a)*.1,0,-Math.sin(a)*.42]);
+  const leg=mesh(new THREE.ConeGeometry(.12,.27,5),mats.root,[x,.12,z],[1,.72,1],[Math.cos(a)*.1,0,-Math.sin(a)*.42]);
+  leg.userData.baseRotation={x:leg.rotation.x,y:leg.rotation.y,z:leg.rotation.z};legs.push(leg);
  }
  mesh(new THREE.DodecahedronGeometry(.13,0),mats.sac,[0,.69,.24],[1.15,.86,1]);
  // 低ポリで左右非対称な傘。上半球と厚みのある裏側を分け、横から見てもキノコの傘に見えるようにする。
@@ -834,7 +836,7 @@ function makeSporeShooterModel(){
   mesh(new THREE.SphereGeometry(.012,6,4),mats.pupil,[side*.134,.795,-.311],[1,1,.5]);
  }
  mesh(new THREE.BoxGeometry(.12,.025,.024),mats.under,[0,.68,-.29],[1,1,1],[0,0,.02]);
- root.userData.body=body;root.userData.cap=cap;root.userData.trunk=trunk;root.userData.base=base;root.userData.phase=Math.random()*Math.PI*2;
+ root.userData.body=body;root.userData.cap=cap;root.userData.trunk=trunk;root.userData.base=base;root.userData.legs=legs;root.userData.phase=Math.random()*Math.PI*2;
  return root;
 }
 function makeSporeProjectile(){
@@ -884,15 +886,20 @@ function updateSporeShooter(dt,now){
  if(c){
   c.group.position.lerp(c.target,1-Math.exp(-dt*13));
   c.group.rotation.y+=Math.atan2(Math.sin(c.targetYaw-c.group.rotation.y),Math.cos(c.targetYaw-c.group.rotation.y))*(1-Math.exp(-dt*12));
-  const body=c.group.userData.body,cap=c.group.userData.cap,trunk=c.group.userData.trunk,base=c.group.userData.base,phase=c.group.userData.phase;
-  const time=now*.001+phase,aim=c.mode==='aim',spit=c.mode==='spit',hurt=c.mode==='hit';
-  body.position.y=Math.sin(time*2.1)*.025+(aim?Math.sin(time*10)*.035:0);
-  body.rotation.z=(aim?-.06:0)+Math.sin(time*1.3)*.018;
+  const body=c.group.userData.body,cap=c.group.userData.cap,trunk=c.group.userData.trunk,base=c.group.userData.base,legs=c.group.userData.legs||[],phase=c.group.userData.phase;
+  const time=now*.001+phase,aim=c.mode==='aim',spit=c.mode==='spit',hurt=c.mode==='hit',walking=c.mode==='walk';
+  const stepWave=Math.sin(time*8.2),walkBob=walking?Math.abs(stepWave)*.035:0;
+  body.position.y=Math.sin(time*2.1)*.025+walkBob+(aim?Math.sin(time*10)*.035:0);
+  body.rotation.z=(aim?-.06:0)+(walking?stepWave*.035:0)+Math.sin(time*1.3)*.018;
   const pulse=aim?.08*Math.sin(time*11):spit?.20*Math.sin(time*24):0;
   cap.scale.set(1.12*(1+pulse),.62*(1+pulse*.75),1*(1+pulse));
-  cap.rotation.z=-.12+(aim?-.05:0)+Math.sin(time*1.7)*.025;
-  trunk.rotation.x=aim?-.12:spit?.16:0;
-  base.rotation.z=hurt?Math.sin(time*25)*.18:0;
+  cap.rotation.z=-.12+(aim?-.05:walking?stepWave*.025:0)+Math.sin(time*1.7)*.025;
+  trunk.rotation.x=aim?-.12:spit?.16:walking?Math.sin(time*8.2+1)*.045:0;
+  base.rotation.z=hurt?Math.sin(time*25)*.18:walking?stepWave*.055:0;
+  for(let i=0;i<legs.length;i++){
+   const baseRot=legs[i].userData.baseRotation||{x:0,y:0,z:0},legWave=walking?Math.sin(time*8.2+i*Math.PI*.5)*.075:0;
+   legs[i].rotation.set(baseRot.x+legWave,baseRot.y,baseRot.z+legWave*.55);
+  }
   c.group.visible=c.mode!=='defeated';
   if(hurt){c.group.scale.setScalar(.96+Math.sin(time*28)*.04)}else c.group.scale.setScalar(1);
  }
@@ -2763,11 +2770,29 @@ let myCol=(()=>{
  const s=ls('rkb_col','');
  if(s&&/^#[0-9a-fA-F]{6}$/.test(s))return parseInt(s.slice(1),16);
  return new THREE.Color().setHSL(Math.random(),.65,.55).getHex();
-})();
+})();// 一人称でもペンを見失わないよう、画面右下に小さな前腕・手・ペンを配置する。
+const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;scene.add(firstPersonPenRig);
+const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:(mySkin&&Number.isFinite(mySkin.limb))?mySkin.limb:myCol});
+const firstPersonRoundedBox=(w,h,d,r=.03)=>{const g=new THREE.BoxGeometry(w,h,d,4,4,4),a=g.attributes.position;for(let i=0;i<a.count;i++){const x=a.getX(i),y=a.getY(i),z=a.getZ(i),cx=Math.max(-w/2+r,Math.min(w/2-r,x)),cy=Math.max(-h/2+r,Math.min(h/2-r,y)),cz=Math.max(-d/2+r,Math.min(d/2-r,z)),dx=x-cx,dy=y-cy,dz=z-cz,len=Math.hypot(dx,dy,dz);if(len>1e-6)a.setXYZ(i,cx+dx/len*r,cy+dy/len*r,cz+dz/len*r)}g.computeVertexNormals();return g};
+const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.15,.36,.15,.035),firstPersonLimbMat);firstPersonArm.position.set(0,-.14,.035);firstPersonPenRig.add(firstPersonArm);
+const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.105,.135,.028),firstPersonLimbMat);firstPersonHand.position.set(0,-.27,-.045);firstPersonPenRig.add(firstPersonHand);
+const firstPersonPen=makePencilProp(.82,.72,firstPersonLimbMat);firstPersonPen.position.set(.006,-.265,-.125);firstPersonPenRig.add(firstPersonPen);
+function updateFirstPersonPenColor(){firstPersonLimbMat.color.setHex((mySkin&&Number.isFinite(mySkin.limb))?mySkin.limb:myCol)}
+function updateFirstPersonPenView(){
+ const held=isPen()&&cur!==0&&canPen();
+ if(selfAv)selfAv.holdingPen=held;
+ firstPersonPenRig.visible=started&&viewMode===0&&held&&!menu&&!typing&&!phonePanelOpen;
+ if(firstPersonPenRig.visible){
+  // カメラの右下に追従するが、シーン内の通常オブジェクトとして描画する。
+  const local=new THREE.Vector3(.34,-.125,-.62);
+  firstPersonPenRig.position.copy(local).applyQuaternion(cam.quaternion).add(cam.position);
+  firstPersonPenRig.quaternion.copy(cam.quaternion);
+ }
+}
 function setMyCol(c,sync){
  c=(c>>>0)&0xffffff;
  if(c===myCol&&!sync)return;
- myCol=c;
+ myCol=c;updateFirstPersonPenColor();
  lsSet('rkb_col','#'+c.toString(16).padStart(6,'0'));
  if($('myColPick'))$('myColPick').value='#'+c.toString(16).padStart(6,'0');
  rebuildSelf();
@@ -3077,11 +3102,20 @@ function skinTex(a,w,h,base,eyes){
  else if(eyes){x.fillStyle='#333';eyes.forEach(r=>x.fillRect(...r))}
  const t=new THREE.CanvasTexture(c);t.magFilter=t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;return t;
 }
-// ペン突き演出用の共有ジオメトリ。通常時は非表示なので、既存アバターの見た目は変わらない。
+// 手持ちペン用の共有ジオメトリ。選択中は手に持ち、攻撃時は腕と一緒に前へ出る。
 const pokePenShaftGeo=new THREE.CylinderGeometry(.012,.016,.29,5);
 const pokePenTipGeo=new THREE.ConeGeometry(.019,.065,5);
+const pokePenGripGeo=new THREE.BoxGeometry(.068,.042,.038);
 const pokePenBodyMat=new THREE.MeshBasicMaterial({color:0xd2b366});
 const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
+function makePencilProp(scale=.8,tilt=.55,gripMat=null){
+ const prop=new THREE.Group();prop.rotation.x=tilt;prop.scale.setScalar(scale);
+ const shaft=new THREE.Mesh(pokePenShaftGeo,pokePenBodyMat);shaft.position.set(0,0,0);prop.add(shaft);
+ const tip=new THREE.Mesh(pokePenTipGeo,pokePenTipMat);tip.position.set(0,-.1725,0);tip.rotation.z=Math.PI;prop.add(tip);
+ // ペンを横切る小さな色付きグリップで、棒が手に貼り付いて見えないようにする。
+ if(gripMat){const grip=new THREE.Mesh(pokePenGripGeo,gripMat);grip.position.set(0,-.025,-.03);prop.add(grip)}
+ return prop;
+}
 function makeAvatar(sk,col){
  const M=c=>new THREE.MeshBasicMaterial({color:c}),T=t=>new THREE.MeshBasicMaterial({map:t,transparent:false});
  const limb=sk?sk.limb:col,headPart=sk?(sk.headPart|0):0,root=new THREE.Group();
@@ -3405,12 +3439,11 @@ function makeAvatar(sk,col){
  const shoeMat=M(0x82796a),footH=.18,footY=-(legLen+footH/2);
  const footL=box(.185,footH,.22,shoeMat,footY,.035),footR=box(.185,footH,.22,shoeMat,footY,.035);
  footL.position.z=-.05;footR.position.z=-.05;legL.add(footL);legR.add(footR);
- // 手の先に短い鉛筆を付け、突く瞬間だけ表示する。腕を前へ伸ばすと自然に敵の方向を向く。
- const pokePen=new THREE.Group();pokePen.visible=false;
- const pokeShaft=new THREE.Mesh(pokePenShaftGeo,pokePenBodyMat);pokeShaft.position.set(0,-.52,0);pokePen.add(pokeShaft);
- const pokeTip=new THREE.Mesh(pokePenTipGeo,pokePenTipMat);pokeTip.position.set(0,-.69,0);pokeTip.rotation.z=Math.PI;pokePen.add(pokeTip);
- armR.add(pokePen);
- return{root,head,torso:torsoPivot,armL,armR,legL,legR,footL,footR,pokePen,pokeAt:0,t:0,crouchMix:0,emo:null,heart:null,g:null};
+ // 右手の先に手のひらを重ね、ペンの持ち位置が腕の中に埋もれないようにする。
+ const handPalm=new THREE.Mesh(roundedBoxGeometry(.145,.11,.14,.03),M(limb));handPalm.position.set(0,-.435,-.015);armR.add(handPalm);
+ // ペンは右手の握り位置に常時装着。軸を下向き＋前向きに傾け、突くときは腕の回転で前方を向く。
+ const pokePen=makePencilProp(.8,.55,M(limb));pokePen.position.set(0,-.405,-.115);pokePen.visible=false;armR.add(pokePen);
+ return{root,head,torso:torsoPivot,armL,armR,legL,legR,footL,footR,pokePen,holdingPen:false,pokeAt:0,t:0,crouchMix:0,emo:null,heart:null,g:null};
 }
 const HEAD_YAW_LIMIT=.48;       // 左右約27.5度
 const HEAD_PITCH_UP=.34;        // 上向き約19.5度
@@ -3471,7 +3504,7 @@ function animAv(a,dt,speed,crouching=false,lookYaw=0,lookPitch=0){
  const pokeMix=pokeElapsed>=0&&pokeElapsed<1?Math.sin(Math.PI*pokeElapsed):0;
  a.armL.rotation.x=aL+crouch*.36-pokeMix*.12;a.armR.rotation.x=aR+crouch*.36+pokeMix*1.28;
  a.armL.rotation.z=-crouch*.055;a.armR.rotation.z=crouch*.055;
- if(a.pokePen)a.pokePen.visible=pokeMix>.12;
+ if(a.pokePen)a.pokePen.visible=a.holdingPen===true||pokeMix>.12;
  const crouchLeg=crouch*.28,hipY=.66-crouch*.04;
  const settleFoot=(leg,foot,legSwing)=>{
   // 脚の付け根は胴体のローカル座標で設定し、ワールド上の高さをhipYに保つ。
@@ -3528,7 +3561,7 @@ function addPlayer(m){
  if(m.id===Net.id||others.has(m.id))return;Snd.play('join');
  const g=new THREE.Group(),av=makeAvatar(unpackSkin(m.sk),m.col);av.g=g;g.add(av.root);
  const nm=lbl(m.name,256,64,32,'rgba(0,0,0,.55)',colCss(m.col));nm.position.y=2.2;g.add(nm);g.visible=false;scene.add(g);
- others.set(m.id,{g,av,name:m.name,col:m.col,sk:m.sk,tp:new THREE.Vector3(),ty:0,viewYaw:0,lookYaw:null,lookPitch:0,crouch:false,fresh:true,bub:null,until:0});setInfo();
+ others.set(m.id,{g,av,name:m.name,col:m.col,sk:m.sk,tp:new THREE.Vector3(),ty:0,viewYaw:0,lookYaw:null,lookPitch:0,crouch:false,heldPen:m.heldPen===true,fresh:true,bub:null,until:0});av.holdingPen=m.heldPen===true;setInfo();
 }
 function removePlayer(id){const o=others.get(id);if(!o)return;Snd.play('leave');scene.remove(o.g);others.delete(id);setInfo();paintPlayers()}
 function showBubble(id,text){
@@ -3662,7 +3695,7 @@ Net.onMsg=m=>{
   case'forest-talk-result':if(!m.ok){if(m.reason==='busy')toast('ポストンが次のひらめきを考えてるよ');else if(m.reason==='far')toast('もう少し近づいてね')}break;
   case'wise-talk-result':if(!m.ok){if(m.reason==='busy')toast('ホシヨミは考え中じゃ');else if(m.reason==='far')toast('もう少し近づいてね')}break;
   case'hello':addPlayer(m);paintPlayers();break;
-  case'pos':{const o=others.get(m.id);if(o){o.tp.set(m.p[0],m.p[1],m.p[2]);o.viewYaw=Number.isFinite(m.y)?m.y:0;o.ty=Number.isFinite(m.by)?m.by:o.viewYaw;o.lookYaw=Number.isFinite(m.hy)?clamp(m.hy,-HEAD_YAW_LIMIT,HEAD_YAW_LIMIT):null;o.lookPitch=Number.isFinite(m.pitch)?clamp(m.pitch,-1.5,1.5):0;o.crouch=m.crouch===true;if(o.fresh){o.g.position.copy(o.tp);o.g.rotation.y=o.ty;o.g.visible=true;o.fresh=false}}break}
+  case'pos':{const o=others.get(m.id);if(o){o.tp.set(m.p[0],m.p[1],m.p[2]);o.viewYaw=Number.isFinite(m.y)?m.y:0;o.ty=Number.isFinite(m.by)?m.by:o.viewYaw;o.lookYaw=Number.isFinite(m.hy)?clamp(m.hy,-HEAD_YAW_LIMIT,HEAD_YAW_LIMIT):null;o.lookPitch=Number.isFinite(m.pitch)?clamp(m.pitch,-1.5,1.5):0;o.crouch=m.crouch===true;o.heldPen=m.heldPen===true;if(o.av)o.av.holdingPen=o.heldPen;if(o.fresh){o.g.position.copy(o.tp);o.g.rotation.y=o.ty;o.g.visible=true;o.fresh=false}}break}
   case'blk':setBlock(m.x,m.y,m.z,m.b,false);break;
   case'pen':{
   if(!m.s)break;
@@ -4199,7 +4232,7 @@ $('limbC').oninput=e=>{ed.limb=parseInt(e.target.value.slice(1),16);edRender()};
 $('edOk').onclick=()=>{
  mySkin={face:ed.face,body:ed.body,bodyB:ed.bodyB,hair:ed.hair,limb:ed.limb,headPart:ed.headPart|0};
  lsSet('rkb_skin',JSON.stringify({face:[...mySkin.face],body:[...mySkin.body],bodyB:[...mySkin.bodyB],hair:mySkin.hair,limb:mySkin.limb,headPart:mySkin.headPart|0}));
- rebuildSelf();Net.send({t:'skin',id:Net.id,sk:packSkin(mySkin)});toast('アバターを保存・同期しました');paintMenu();
+ rebuildSelf();updateFirstPersonPenColor();Net.send({t:'skin',id:Net.id,sk:packSkin(mySkin)});toast('アバターを保存・同期しました');paintMenu();
 };
 let admAuthOpen=false,mTitleClicks=0,mTitleT=0;
 function showAdmAuth(v){
@@ -4692,6 +4725,7 @@ function loop(now){
   const selfHeadYaw=headYawFor(me.yaw,selfBodyYaw,moveSpeed);
   // 正面観察モードはカメラが対象を固定で見返すため、操作用pitchではなく正面姿勢を保つ。
   const selfHeadPitch=viewMode===2?0:clamp(me.pitch,-HEAD_PITCH_DOWN,HEAD_PITCH_UP);
+  selfAv.holdingPen=isPen()&&cur!==0&&canPen();
   animAv(selfAv,dt,moveSpeed,me.crouch,selfHeadYaw,selfHeadPitch);
   const crouchBlend=selfAv.crouchMix;
   cam.position.set(me.p.x,me.p.y+(1.62-.37*crouchBlend),me.p.z);cam.rotation.set(me.pitch,me.yaw,0);
@@ -4706,6 +4740,7 @@ function loop(now){
    cam.lookAt(me.p.x,me.p.y+1.35-.34*crouchBlend,me.p.z);
   }
   cam.updateMatrixWorld();
+  updateFirstPersonPenView();
   Snd.updateListener(cam.position,cam.quaternion);
   applyUnderwaterFX();
   ro.copy(cam.position);if(cm()&&act())rd.set(mx/innerWidth*2-1,-(my/innerHeight)*2+1,.5).unproject(cam).sub(ro).normalize();else cam.getWorldDirection(rd);hit=cast();updatePhoneHauntProximity();updatePhoneStationHint();updateForestResidentHint();updateWiseCharacterHint();updateInteractPrompt();if(pickReq){pick();pickReq=picking=false}
@@ -4760,7 +4795,7 @@ if(hit)sel.position.set(hit.x+.5,hit.y+.5,hit.z+.5);
   if(tDirty){for(const page of dirtyPaintPages)paintAtlases[page].texture.needsUpdate=true;dirtyPaintPages.clear();tDirty=false}
   if(out.length&&now-penT>60){{const faces=new Set(out.map(it=>it[0]));for(const k of faces)faceAuthor.set(k,myName);Net.send({t:'pen',s:out});out=[];penT=now}}
   if(saveDirty&&now-saveT>30000){saveDirty=false;saveT=now;saveWorld()}
-  if(Net.id&&now-posT>66){Net.send({t:'pos',id:Net.id,p:[+me.p.x.toFixed(2),+me.p.y.toFixed(2),+me.p.z.toFixed(2)],y:+me.yaw.toFixed(3),by:+selfBodyYaw.toFixed(3),hy:+selfHeadYaw.toFixed(3),pitch:+selfHeadPitch.toFixed(3),crouch:!!me.crouch});posT=now}
+  if(Net.id&&now-posT>66){Net.send({t:'pos',id:Net.id,p:[+me.p.x.toFixed(2),+me.p.y.toFixed(2),+me.p.z.toFixed(2)],y:+me.yaw.toFixed(3),by:+selfBodyYaw.toFixed(3),hy:+selfHeadYaw.toFixed(3),pitch:+selfHeadPitch.toFixed(3),crouch:!!me.crouch,heldPen:isPen()&&cur!==0&&canPen()});posT=now}
   const k=1-Math.exp(-dt*12);
   selfG.visible=viewMode>0;if(viewMode>0){selfG.position.copy(me.p);selfG.rotation.y=selfBodyYaw}
   for(const o of others.values()){
