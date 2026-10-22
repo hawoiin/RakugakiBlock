@@ -2976,7 +2976,15 @@ let myCol=(()=>{
  const s=ls('rkb_col','');
  if(s&&/^#[0-9a-fA-F]{6}$/.test(s))return parseInt(s.slice(1),16);
  return new THREE.Color().setHSL(Math.random(),.65,.55).getHex();
-})();// 一人称でもペンを見失わないよう、画面右下に小さな前腕・手・ペンを配置する。
+})();// ペン用の共有ジオメトリとマテリアルは、一人称リグの生成より先に初期化する。
+// makePencilProp() は関数宣言のため先に呼べるが、参照する const は先に初期化済みである必要がある。
+const pokePenShaftGeo=new THREE.CylinderGeometry(.012,.016,.29,5);
+const pokePenTipGeo=new THREE.ConeGeometry(.019,.065,5);
+const pokePenGripGeo=new THREE.BoxGeometry(.068,.042,.038);
+const pokePenBodyMat=new THREE.MeshBasicMaterial({color:0xd2b366});
+const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
+
+// 一人称でもペンを見失わないよう、画面右下に小さな前腕・手・ペンを配置する。
 const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;scene.add(firstPersonPenRig);
 const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:myCol}); // mySkin is loaded later; avoid temporal-dead-zone access
 const firstPersonRoundedBox=(w,h,d,r=.03)=>{const g=new THREE.BoxGeometry(w,h,d,4,4,4),a=g.attributes.position;for(let i=0;i<a.count;i++){const x=a.getX(i),y=a.getY(i),z=a.getZ(i),cx=Math.max(-w/2+r,Math.min(w/2-r,x)),cy=Math.max(-h/2+r,Math.min(h/2-r,y)),cz=Math.max(-d/2+r,Math.min(d/2-r,z)),dx=x-cx,dy=y-cy,dz=z-cz,len=Math.hypot(dx,dy,dz);if(len>1e-6)a.setXYZ(i,cx+dx/len*r,cy+dy/len*r,cz+dz/len*r)}g.computeVertexNormals();return g};
@@ -3311,11 +3319,6 @@ function skinTex(a,w,h,base,eyes){
  const t=new THREE.CanvasTexture(c);t.magFilter=t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;return t;
 }
 // 手持ちペン用の共有ジオメトリ。選択中は手に持ち、攻撃時は腕と一緒に前へ出る。
-const pokePenShaftGeo=new THREE.CylinderGeometry(.012,.016,.29,5);
-const pokePenTipGeo=new THREE.ConeGeometry(.019,.065,5);
-const pokePenGripGeo=new THREE.BoxGeometry(.068,.042,.038);
-const pokePenBodyMat=new THREE.MeshBasicMaterial({color:0xd2b366});
-const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
 function makePencilProp(scale=.8,tilt=.55,gripMat=null){
  const prop=new THREE.Group();prop.rotation.x=tilt;prop.scale.setScalar(scale);
  const shaft=new THREE.Mesh(pokePenShaftGeo,pokePenBodyMat);shaft.position.set(0,0,0);prop.add(shaft);
