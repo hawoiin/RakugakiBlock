@@ -708,10 +708,10 @@ caveWetCtx.clearRect(0,0,64,96);caveWetBlob(28,24,18,28,.30);caveWetBlob(38,54,1
 for(let i=0;i<7;i++){caveWetCtx.strokeStyle=`rgba(100,145,154,${.08+(i%3)*.025})`;caveWetCtx.lineWidth=1+(i%2);caveWetCtx.beginPath();const x=10+i*7;caveWetCtx.moveTo(x,6+(i%3)*4);caveWetCtx.bezierCurveTo(x-3,27,x+4,43,x+(i%2?2:-2),66+(i%3)*5);caveWetCtx.stroke()}
 const caveWetTexture=new THREE.CanvasTexture(caveWetCanvas);caveWetTexture.magFilter=THREE.LinearFilter;caveWetTexture.minFilter=THREE.LinearFilter;caveWetTexture.generateMipmaps=false;
 const caveWetMaterial=new THREE.MeshBasicMaterial({map:caveWetTexture,color:0x8ba9b1,transparent:true,opacity:.66,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
-const caveRubbleMaterials=[0x66696b,0x777775,0x595d60].map(color=>new THREE.MeshBasicMaterial({color,flatShading:true}));
+const caveRubbleMaterials=[0x66696b,0x777775,0x595d60].map(color=>new THREE.MeshBasicMaterial({color}));
 const caveRubbleGeometry=new THREE.DodecahedronGeometry(1,0);
 const caveStalactiteGeometry=new THREE.ConeGeometry(.145,.48,5,1,false);
-const caveStalactiteMaterial=new THREE.MeshBasicMaterial({color:0x64686a,flatShading:true});
+const caveStalactiteMaterial=new THREE.MeshBasicMaterial({color:0x64686a});
 const cavePoolMaterial=new THREE.MeshBasicMaterial({color:0x34768b,transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
 const cavePoolSheenMaterial=new THREE.MeshBasicMaterial({color:0xa6d4d5,transparent:true,opacity:.17,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3});
 const caveDropMaterial=new THREE.MeshBasicMaterial({color:0x93cbd2,transparent:true,opacity:.82,depthWrite:false});
@@ -753,9 +753,9 @@ function addCaveStalactite(def){
  return registerCaveSite(mesh,()=>get(def.xCell,def.ceilingY,def.zCell)!==0&&get(def.xCell,def.airY,def.zCell)===0);
 }
 // コウモリは非敵対の環境生物。天井に休み、プレイヤーが近くを通ると一時的に飛び立つ。
-const caveBatBodyMaterial=new THREE.MeshBasicMaterial({color:0x302f32,flatShading:true});
-const caveBatWingMaterial=new THREE.MeshBasicMaterial({color:0x3e3b3c,side:THREE.DoubleSide,flatShading:true});
-const caveBatBellyMaterial=new THREE.MeshBasicMaterial({color:0x5a504b,flatShading:true});
+const caveBatBodyMaterial=new THREE.MeshBasicMaterial({color:0x302f32});
+const caveBatWingMaterial=new THREE.MeshBasicMaterial({color:0x3e3b3c,side:THREE.DoubleSide});
+const caveBatBellyMaterial=new THREE.MeshBasicMaterial({color:0x5a504b});
 const caveBatEyeMaterial=new THREE.MeshBasicMaterial({color:0xb88768});
 const caveBatEarGeometry=new THREE.ConeGeometry(.022,.072,4,1);
 const caveBatWingShape=new THREE.Shape();caveBatWingShape.moveTo(0,.025);caveBatWingShape.lineTo(-.15,.035);caveBatWingShape.lineTo(-.29,-.025);caveBatWingShape.lineTo(-.245,-.11);caveBatWingShape.lineTo(-.16,-.088);caveBatWingShape.lineTo(-.085,-.16);caveBatWingShape.lineTo(0,-.105);caveBatWingShape.closePath();
@@ -1576,7 +1576,7 @@ const clouds=new THREE.Group();scene.add(clouds);
  }
  for(let i=0;i<12;i++){
   const geo=makeCloudGeometry(i+1);
-  const mat=new THREE.MeshBasicMaterial({vertexColors:true,flatShading:true,fog:true});
+  const mat=new THREE.MeshBasicMaterial({vertexColors:true,fog:true});
   const m=new THREE.Mesh(geo,mat);
   const size=1.32+Math.random()*.92;
   m.scale.set(size,size*(.88+Math.random()*.18),size*(.92+Math.random()*.16));
@@ -2978,7 +2978,7 @@ let myCol=(()=>{
  return new THREE.Color().setHSL(Math.random(),.65,.55).getHex();
 })();// 一人称でもペンを見失わないよう、画面右下に小さな前腕・手・ペンを配置する。
 const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;scene.add(firstPersonPenRig);
-const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:(mySkin&&Number.isFinite(mySkin.limb))?mySkin.limb:myCol});
+const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:myCol}); // mySkin is loaded later; avoid temporal-dead-zone access
 const firstPersonRoundedBox=(w,h,d,r=.03)=>{const g=new THREE.BoxGeometry(w,h,d,4,4,4),a=g.attributes.position;for(let i=0;i<a.count;i++){const x=a.getX(i),y=a.getY(i),z=a.getZ(i),cx=Math.max(-w/2+r,Math.min(w/2-r,x)),cy=Math.max(-h/2+r,Math.min(h/2-r,y)),cz=Math.max(-d/2+r,Math.min(d/2-r,z)),dx=x-cx,dy=y-cy,dz=z-cz,len=Math.hypot(dx,dy,dz);if(len>1e-6)a.setXYZ(i,cx+dx/len*r,cy+dy/len*r,cz+dz/len*r)}g.computeVertexNormals();return g};
 const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.15,.36,.15,.035),firstPersonLimbMat);firstPersonArm.position.set(0,-.14,.035);firstPersonPenRig.add(firstPersonArm);
 const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.105,.135,.028),firstPersonLimbMat);firstPersonHand.position.set(0,-.27,-.045);firstPersonPenRig.add(firstPersonHand);
@@ -3302,6 +3302,8 @@ function loadSkin(){
  }catch(e){return null}
 }
 let mySkin=loadSkin();
+// Apply saved avatar limb color only after mySkin has been initialized.
+updateFirstPersonPenColor();
 function skinTex(a,w,h,base,eyes){
  const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.fillStyle=hx(base);x.fillRect(0,0,w,h);
  if(a){for(let i=0;i<a.length;i++)if(a[i]){x.fillStyle=toCss(a[i]);x.fillRect(i%w,(i/w)|0,1,1)}}
