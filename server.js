@@ -31,7 +31,7 @@ const PORT = process.env.PORT || 3040;
 /** 未設定なら管理者機能オフ（ソースに既定合言葉は置かない） */
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
-const VER = 16; // 胞子吐きの歩行状態を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
+const VER = 15; // 胞子吐きの歩行状態を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
 const NATURAL_CAVE_VERSION = 4;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
