@@ -2978,12 +2978,12 @@ const firstPersonRoundedBox=(w,h,d,r)=>{
  }
  a.needsUpdate=true;g.computeVertexNormals();return g;
 };
-// アバター本体と同じ .18×.47×.18 の腕、同じ .145×.11×.14 の手のひらを使用。
-// 肩を画面外の右下へ逃がし、手が腕の上端につながって見えるように斜めに構える。
+// アバターの腕はそのまま維持し、手のひらだけを少し細く・低くして、
+// ペン先が手の輪郭に隠れにくい握り位置に微調整する。ペンの位置・角度は変更しない。
 const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.18,.47,.18,.045),firstPersonLimbMat);
 firstPersonArm.position.set(.52,-.49,-.72);firstPersonArm.rotation.z=.48;firstPersonArm.renderOrder=997;firstPersonPose.add(firstPersonArm);
-const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.11,.14,.03),firstPersonLimbMat);
-firstPersonHand.position.set(.411,-.283,-.68);firstPersonHand.rotation.z=.48;firstPersonHand.renderOrder=998;firstPersonPose.add(firstPersonHand);
+const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.132,.092,.112,.028),firstPersonLimbMat);
+firstPersonHand.position.set(.425,-.298,-.68);firstPersonHand.rotation.z=.48;firstPersonHand.renderOrder=998;firstPersonPose.add(firstPersonHand);
 // 一人称の手持ちアイテム。ブロックはワールドと同じブロックテクスチャ／面の色を使い、
 // 小さく斜めに構えて右手の前に表示する。アイテムを別UIとして貼らず、深度テストを通す。
 const firstPersonPen=makePencilProp(.8,0,firstPersonLimbMat);
