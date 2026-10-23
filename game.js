@@ -415,7 +415,7 @@ function makeNaturalCaveDeepPlan(w){
 function makeNaturalCaveDeepEdits(w){return makeNaturalCaveDeepPlan(w).edits;}
 
 function refreshNaturalCaveWallCells(w=world){
-  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w),...makeNaturalCaveDeepEdits(w)]);
+  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w),...makeNaturalCaveDeepEdits(w)]);for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)planned.set(idx(x,y,z),b);
   for(const [at,b] of planned){
    if((b===6||b===12||b===13)&&w[at]===b)naturalCaveAccentCells.add(at);
    if(b!==0||w[at]!==0)continue;
@@ -426,11 +426,48 @@ function refreshNaturalCaveWallCells(w=world){
    }
   }
 }
-function applyNaturalCave(w,trackVisual=(w===world)){
+/* ---- 洞窟の環境要素は飾りメッシュではなく編集可能なボクセルとして配置 ---- */
+function makeNaturalCaveVoxelDetailGroups(){
+ const groups=[];
+ const add=(name,edits,guards)=>groups.push({name,edits,guards});
+ const nearby=(x,y,z,rx=1,ry=1,rz=1)=>{
+  const a=[];
+  for(let xx=x-rx;xx<=x+rx;xx++)for(let yy=y-ry;yy<=y+ry;yy++)for(let zz=z-rz;zz<=z+rz;zz++)
+   if(xx>=0&&xx<W&&yy>=0&&yy<H&&zz>=0&&zz<D)a.push(idx(xx,yy,zz));
+  return a;
+ };
+ // 上層の小さな水たまり。床セル自体を通常の水ブロック(ID 8)に置き換える。
+ const upperEdits=[],upperGuards=new Set();
+ for(const x of [14,15])for(const z of [10,11]){
+  upperEdits.push([x,8,z,8]);
+  for(const at of nearby(x,8,z,1,2,1))upperGuards.add(at);
+ }
+ add('upper-water-pool',upperEdits,[...upperGuards]);
+ // 下層の水たまり。水滴の着地点(x=47,z=13)は避ける。
+ const deepEdits=[],deepGuards=new Set();
+ for(const x of [45,46])for(const z of [12,13]){
+  deepEdits.push([x,3,z,8]);
+  for(const at of nearby(x,3,z,1,2,1))deepGuards.add(at);
+ }
+ add('deep-water-pool',deepEdits,[...deepGuards]);
+ // 天井に接続する石ブロック。独立した三角錐メッシュではなく、通常の破壊可能ブロック。
+ for(const [name,x,z] of [['deep-stalactite-east',48,13],['deep-stalactite-west',43,8]])
+  add(name,[[x,7,z,3]],nearby(x,7,z,1,1,1));
+ // 落石は通路の縁にある通常の石ブロック。中央の通路は塞がない位置。
+ for(const [name,x,z] of [['deep-rubble-west',42,9],['deep-rubble-east',48,9],['deep-rubble-south',47,14]])
+  add(name,[[x,4,z,3]],nearby(x,4,z,1,1,1));
+ return groups;
+}
+function applyNaturalCaveVoxelDetails(w){
+ for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)w[idx(x,y,z)]=b;
+}
+
+function applyNaturalCave(w,trackVisual=(w===world),includeVoxelDetails=true){
  const deep=makeNaturalCaveDeepPlan(w);
  const edits=makeNaturalCaveEdits(w);for(const [at,b] of edits)w[at]=b;
  const extension=makeNaturalCaveExtensionEdits(w);for(const [at,b] of extension)w[at]=b;
  for(const [at,b] of deep.edits)w[at]=b;
+ if(includeVoxelDetails)applyNaturalCaveVoxelDetails(w);
  if(trackVisual)refreshNaturalCaveWallCells(w);
  return edits;
 }
@@ -690,48 +727,13 @@ scene.add(wm,wtm);
 omPages.forEach(om=>{om.frustumCulled=false;scene.add(om)});
 scene.add(sm);
 
-/* ---- 自然洞窟の環境演出 v20.142（視覚のみ・衝突判定や保存データは変更しない） ---- */
+/* ---- 自然洞窟の環境要素 v20.149（水たまり・落石・鍾乳石は編集可能なブロック） ---- */
 const caveAmbienceGroup=new THREE.Group();caveAmbienceGroup.name='natural-cave-ambience';scene.add(caveAmbienceGroup);
 const caveAmbienceSites=[];let caveSiteCheckAt=0;
 const caveDrips=[];
-const cavePools=[];
 const caveBats=[];
-const caveWetCanvas=document.createElement('canvas');caveWetCanvas.width=64;caveWetCanvas.height=96;
-const caveWetCtx=caveWetCanvas.getContext('2d');
-function caveWetBlob(cx,cy,rx,ry,alpha){
- caveWetCtx.save();caveWetCtx.translate(cx,cy);caveWetCtx.scale(rx,ry);
- const grad=caveWetCtx.createRadialGradient(0,0,.02,0,0,1);
- grad.addColorStop(0,`rgba(47,76,86,${alpha})`);grad.addColorStop(.48,`rgba(55,83,91,${alpha*.58})`);grad.addColorStop(1,'rgba(47,76,86,0)');
- caveWetCtx.fillStyle=grad;caveWetCtx.fillRect(-1,-1,2,2);caveWetCtx.restore();
-}
-caveWetCtx.clearRect(0,0,64,96);caveWetBlob(28,24,18,28,.30);caveWetBlob(38,54,13,32,.22);caveWetBlob(16,72,10,18,.20);
-for(let i=0;i<7;i++){caveWetCtx.strokeStyle=`rgba(100,145,154,${.08+(i%3)*.025})`;caveWetCtx.lineWidth=1+(i%2);caveWetCtx.beginPath();const x=10+i*7;caveWetCtx.moveTo(x,6+(i%3)*4);caveWetCtx.bezierCurveTo(x-3,27,x+4,43,x+(i%2?2:-2),66+(i%3)*5);caveWetCtx.stroke()}
-const caveWetTexture=new THREE.CanvasTexture(caveWetCanvas);caveWetTexture.magFilter=THREE.LinearFilter;caveWetTexture.minFilter=THREE.LinearFilter;caveWetTexture.generateMipmaps=false;
-const caveWetMaterial=new THREE.MeshBasicMaterial({map:caveWetTexture,color:0x8ba9b1,transparent:true,opacity:.66,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
-const caveRubbleMaterials=[0x66696b,0x777775,0x595d60].map(color=>new THREE.MeshBasicMaterial({color}));
-const caveRubbleGeometry=new THREE.DodecahedronGeometry(1,0);
-const caveStalactiteGeometry=new THREE.ConeGeometry(.145,.48,5,1,false);
-const caveStalactiteMaterial=new THREE.MeshBasicMaterial({color:0x64686a});
-const cavePoolMaterial=new THREE.MeshBasicMaterial({color:0x34768b,transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
-const cavePoolSheenMaterial=new THREE.MeshBasicMaterial({color:0xa6d4d5,transparent:true,opacity:.17,depthWrite:false,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3});
 const caveDropMaterial=new THREE.MeshBasicMaterial({color:0x93cbd2,transparent:true,opacity:.82,depthWrite:false});
-function caveShape(rx,rz){
- const sh=new THREE.Shape();sh.moveTo(-rx*.86,-rz*.18);sh.quadraticCurveTo(-rx*.94,-rz*.72,-rx*.40,-rz*.88);sh.quadraticCurveTo(rx*.10,-rz*1.04,rx*.57,-rz*.68);sh.quadraticCurveTo(rx*1.04,-rz*.35,rx*.91,rz*.22);sh.quadraticCurveTo(rx*.76,rz*.82,rx*.22,rz*.90);sh.quadraticCurveTo(-rx*.34,rz*1.02,-rx*.76,rz*.58);sh.quadraticCurveTo(-rx*1.02,rz*.20,-rx*.86,-rz*.18);return sh;
-}
 function registerCaveSite(object,valid){caveAmbienceGroup.add(object);caveAmbienceSites.push({object,valid});return object}
-function caveFloorSite(x,y,z){return()=>{const floor=get(Math.floor(x),y-1,Math.floor(z)),above=get(Math.floor(x),y,Math.floor(z));return floor!==0&&floor!==8&&above===0}}
-function addCavePool(def){
- const root=new THREE.Group();root.position.set(def.x,def.y,def.z);root.name='cave-shallow-pool';
- const surface=new THREE.Mesh(new THREE.ShapeGeometry(caveShape(def.rx,def.rz),5),cavePoolMaterial);surface.rotation.x=-Math.PI/2;surface.renderOrder=2;root.add(surface);
- const sheen=new THREE.Mesh(new THREE.ShapeGeometry(caveShape(def.rx*.64,def.rz*.56),4),cavePoolSheenMaterial);sheen.rotation.x=-Math.PI/2;sheen.position.y=.006;sheen.renderOrder=3;root.add(sheen);
- const rippleMat1=new THREE.MeshBasicMaterial({color:0xc2e1df,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide});
- const rippleMat2=new THREE.MeshBasicMaterial({color:0x9ac7cb,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide});
- const ripple1=new THREE.Mesh(new THREE.RingGeometry(.055,.075,12),rippleMat1);ripple1.rotation.x=-Math.PI/2;ripple1.position.set(-def.rx*.12,.012,def.rz*.08);root.add(ripple1);
- const ripple2=new THREE.Mesh(new THREE.RingGeometry(.035,.05,12),rippleMat2);ripple2.rotation.x=-Math.PI/2;ripple2.position.set(def.rx*.18,.013,-def.rz*.12);root.add(ripple2);
- const registered=registerCaveSite(root,()=>caveFloorSite(def.x,def.floorY+1,def.z)());
- cavePools.push({root,phase:def.phase,ripples:[{mesh:ripple1,material:rippleMat1,offset:0},{mesh:ripple2,material:rippleMat2,offset:.48}]});
- return registered;
-}
 function addCaveDrip(def){
  const root=new THREE.Group();root.name='cave-water-drip';
  const drop=new THREE.Mesh(new THREE.SphereGeometry(.044,7,5),caveDropMaterial);drop.scale.set(.82,1.35,.82);drop.visible=false;drop.renderOrder=4;root.add(drop);
@@ -739,18 +741,6 @@ function addCaveDrip(def){
  const ripple=new THREE.Mesh(new THREE.RingGeometry(.045,.07,12),rippleMat);ripple.rotation.x=-Math.PI/2;ripple.position.set(def.x,def.bottom+.014,def.z);ripple.visible=false;ripple.renderOrder=4;root.add(ripple);
  registerCaveSite(root,()=>{const x=Math.floor(def.x),z=Math.floor(def.z),floor=get(x,def.floorY,z);if(floor===0||floor===8||get(x,def.ceilingY,z)===0)return false;for(let y=def.airY;y<def.ceilingY;y++)if(get(x,y,z)!==0)return false;return true});
  caveDrips.push({...def,root,drop,ripple,rippleMat});
-}
-function addCaveWetPatch(def){
- const mesh=new THREE.Mesh(new THREE.PlaneGeometry(def.w,def.h),caveWetMaterial);mesh.position.set(def.x,def.y,def.z);mesh.rotation.y=def.ry||0;mesh.renderOrder=2;
- return registerCaveSite(mesh,()=>get(def.wall[0],def.wall[1],def.wall[2])!==0&&get(def.open[0],def.open[1],def.open[2])===0);
-}
-function addCaveRubble(def){
- const mesh=new THREE.Mesh(caveRubbleGeometry,caveRubbleMaterials[def.mat%caveRubbleMaterials.length]);mesh.position.set(def.x,def.y,def.z);mesh.scale.set(def.sx,def.sy,def.sz);mesh.rotation.set(def.rx||0,def.ry||0,def.rz||0);mesh.renderOrder=1;
- return registerCaveSite(mesh,()=>caveFloorSite(def.x,def.floorY+1,def.z)());
-}
-function addCaveStalactite(def){
- const mesh=new THREE.Mesh(caveStalactiteGeometry,caveStalactiteMaterial);mesh.position.set(def.x,def.y,def.z);mesh.rotation.x=def.tiltX||0;mesh.rotation.z=Math.PI+(def.tiltZ||0);mesh.renderOrder=1;
- return registerCaveSite(mesh,()=>get(def.xCell,def.ceilingY,def.zCell)!==0&&get(def.xCell,def.airY,def.zCell)===0);
 }
 // コウモリは非敵対の環境生物。天井に休み、プレイヤーが近くを通ると一時的に飛び立つ。
 const caveBatBodyMaterial=new THREE.MeshBasicMaterial({color:0x302f32});
@@ -776,22 +766,9 @@ function makeCaveBat(def){
  const bat={root,wings:[left,right],home:new THREE.Vector3(def.x,def.y,def.z),phase:def.phase,fleeAt:0,cooldownUntil:0,valid:()=>get(def.xCell,def.floorY,def.zCell)!==0&&get(def.xCell,def.airY,def.zCell)===0&&get(def.xCell,def.ceilingY,def.zCell)!==0};
  registerCaveSite(root,bat.valid);caveBats.push(bat);return bat;
 }
-// 上層の広間・結晶室・東側通路と、下層の空洞に分散。通路中央は避ける。
-addCaveWetPatch({x:42.006,y:5.75,z:11.15,w:.78,h:1.05,ry:Math.PI/2,wall:[41,5,11],open:[42,5,11]});
-addCaveWetPatch({x:45.25,y:5.65,z:2.006,w:.75,h:.92,wall:[45,5,1],open:[45,5,2]});
-addCaveWetPatch({x:15.994,y:10.35,z:15.05,w:.52,h:.82,ry:-Math.PI/2,wall:[16,10,15],open:[15,10,15]});
-addCavePool({x:47.05,y:4.014,z:13.0,rx:.93,rz:.63,floorY:3,phase:.35});
-addCavePool({x:45.35,y:4.014,z:4.45,rx:.72,rz:.49,floorY:3,phase:1.75});
-addCavePool({x:14.0,y:9.014,z:15.2,rx:.55,rz:.38,floorY:8,phase:2.65});
+// 水滴は天井のブロックから落ち、床に触れると波紋が出る。ブロック変更時は天井・床を再確認する。
 addCaveDrip({x:47.05,z:13.0,top:7.73,bottom:4.04,floorY:3,airY:4,ceilingY:8,phase:.4,period:3.9});
 addCaveDrip({x:45.35,z:4.45,top:7.73,bottom:4.04,floorY:3,airY:4,ceilingY:8,phase:2.1,period:4.65});
-addCaveRubble({x:42.55,y:4.105,z:9.3,sx:.18,sy:.13,sz:.22,rx:.18,ry:.2,rz:.1,mat:0,floorY:3});
-addCaveRubble({x:43.0,y:4.09,z:9.05,sx:.115,sy:.085,sz:.14,rx:.35,ry:1.1,rz:.1,mat:2,floorY:3});
-addCaveRubble({x:48.35,y:4.105,z:9.3,sx:.2,sy:.14,sz:.17,rx:.2,ry:.6,rz:.12,mat:1,floorY:3});
-addCaveRubble({x:47.55,y:4.10,z:14.05,sx:.15,sy:.105,sz:.19,rx:.25,ry:.4,rz:.1,mat:0,floorY:3});
-addCaveRubble({x:18.55,y:9.09,z:10.75,sx:.16,sy:.10,sz:.19,rx:.25,ry:.3,rz:.08,mat:1,floorY:8});
-addCaveStalactite({x:48.0,y:7.76,z:13.1,xCell:48,zCell:13,ceilingY:8,airY:7,tiltZ:.12});
-addCaveStalactite({x:43.0,y:7.76,z:8.2,xCell:43,zCell:8,ceilingY:8,airY:7,tiltZ:-.1});
 [
  {x:15.1,y:15.55,z:9.2,xCell:15,zCell:9,floorY:8,airY:15,ceilingY:16,phase:.4},
  {x:11.1,y:13.48,z:4.5,xCell:11,zCell:4,floorY:8,airY:13,ceilingY:14,phase:1.4},
@@ -805,10 +782,6 @@ function updateCaveAmbience(dt,now){
  if(!caveAmbienceGroup.visible)return;
  if(now>=caveSiteCheckAt){caveSiteCheckAt=now+1200;for(const site of caveAmbienceSites)site.object.visible=!!site.valid()}
  const t=now*.001;
- for(const pool of cavePools){
-  const phase=((t+pool.phase)%3.7)/3.7;
-  for(const ripple of pool.ripples){const p=(phase+ripple.offset)%1,active=p<.48;ripple.mesh.visible=active;ripple.mesh.scale.setScalar(.45+(p/.48)*1.2);ripple.material.opacity=active?.22*(1-p/.48):0}
- }
  for(const d of caveDrips){
   if(!d.root.visible)continue;
   const p=((t+d.phase)%d.period)/d.period,fallPart=.13,ripplePart=.21;
@@ -2984,21 +2957,41 @@ const pokePenGripGeo=new THREE.BoxGeometry(.068,.042,.038);
 const pokePenBodyMat=new THREE.MeshBasicMaterial({color:0xd2b366});
 const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
 
-// 一人称でもペンを見失わないよう、画面右下に小さな前腕・手・ペンを配置する。
+// 一人称の手は独自モデルを作らず、三人称アバターの右腕・手のひら・ペンを複製して使う。
+// 形状と素材を共有するため、視点によって手の大きさや色・丸みが変わらない。
 const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;scene.add(firstPersonPenRig);
-const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:myCol}); // mySkin is loaded later; avoid temporal-dead-zone access
-const firstPersonRoundedBox=(w,h,d,r=.03)=>{const g=new THREE.BoxGeometry(w,h,d,4,4,4),a=g.attributes.position;for(let i=0;i<a.count;i++){const x=a.getX(i),y=a.getY(i),z=a.getZ(i),cx=Math.max(-w/2+r,Math.min(w/2-r,x)),cy=Math.max(-h/2+r,Math.min(h/2-r,y)),cz=Math.max(-d/2+r,Math.min(d/2-r,z)),dx=x-cx,dy=y-cy,dz=z-cz,len=Math.hypot(dx,dy,dz);if(len>1e-6)a.setXYZ(i,cx+dx/len*r,cy+dy/len*r,cz+dz/len*r)}g.computeVertexNormals();return g};
-const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.15,.36,.15,.035),firstPersonLimbMat);firstPersonArm.position.set(0,-.14,.035);firstPersonPenRig.add(firstPersonArm);
-const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.105,.135,.028),firstPersonLimbMat);firstPersonHand.position.set(0,-.27,-.045);firstPersonPenRig.add(firstPersonHand);
-const firstPersonPen=makePencilProp(.82,.72,firstPersonLimbMat);firstPersonPen.position.set(.006,-.265,-.125);firstPersonPenRig.add(firstPersonPen);
-function updateFirstPersonPenColor(){firstPersonLimbMat.color.setHex((mySkin&&Number.isFinite(mySkin.limb))?mySkin.limb:myCol)}
+let firstPersonArmModel=null;
+function rebuildFirstPersonArmModel(){
+ if(firstPersonArmModel)firstPersonPenRig.remove(firstPersonArmModel);
+ firstPersonArmModel=null;
+ if(!selfAv||!selfAv.armR)return;
+ firstPersonArmModel=selfAv.armR.clone(true);
+ // 三人称の肩位置オフセットは捨て、肩から手先までの同一モデルをカメラ前に配置する。
+ firstPersonArmModel.position.set(0,0,0);
+ firstPersonArmModel.rotation.set(0,0,-.48);
+ firstPersonArmModel.scale.set(1,1,1);
+ const pen=firstPersonArmModel.getObjectByName('pokePenProp');if(pen)pen.visible=false;
+ firstPersonPenRig.add(firstPersonArmModel);
+}
+function updateFirstPersonPenColor(){
+ // 手・腕の材質は三人称アバターと共有し、スキン変更時は rebuildSelf() で一緒に再生成する。
+}
 function updateFirstPersonPenView(){
  const held=isPen()&&cur!==0&&canPen();
  if(selfAv)selfAv.holdingPen=held;
- firstPersonPenRig.visible=started&&viewMode===0&&held&&!menu&&!typing&&!phonePanelOpen;
+ if(firstPersonArmModel){
+  const elapsed=selfAv&&selfAv.pokeAt?(performance.now()-selfAv.pokeAt)/360:2;
+  const pokeMix=elapsed>=0&&elapsed<1?Math.sin(Math.PI*elapsed):0;
+  // 通常時は自然に前へ構え、ペン突き中は同じ右腕モデルを前に伸ばす。
+  firstPersonArmModel.rotation.x=.12+pokeMix*.72;
+  firstPersonArmModel.rotation.z=-.48+pokeMix*.10;
+  const pen=firstPersonArmModel.getObjectByName('pokePenProp');
+  if(pen)pen.visible=held||pokeMix>.12;
+ }
+ firstPersonPenRig.visible=started&&viewMode===0&&(held||(selfAv&&selfAv.pokeAt&&performance.now()-selfAv.pokeAt<360))&&!menu&&!typing&&!phonePanelOpen;
  if(firstPersonPenRig.visible){
-  // カメラの右下に追従するが、シーン内の通常オブジェクトとして描画する。
-  const local=new THREE.Vector3(.34,-.125,-.62);
+  // 同一アバター部品をカメラ右下へ置く。肩から手までが画面端につながる配置。
+  const local=new THREE.Vector3(.34,-.025,-.62);
   firstPersonPenRig.position.copy(local).applyQuaternion(cam.quaternion).add(cam.position);
   firstPersonPenRig.quaternion.copy(cam.quaternion);
  }
@@ -3653,7 +3646,7 @@ function makeAvatar(sk,col){
  // 右手の先に手のひらを重ね、ペンの持ち位置が腕の中に埋もれないようにする。
  const handPalm=new THREE.Mesh(roundedBoxGeometry(.145,.11,.14,.03),M(limb));handPalm.position.set(0,-.435,-.015);armR.add(handPalm);
  // ペンは右手の握り位置に常時装着。軸を下向き＋前向きに傾け、突くときは腕の回転で前方を向く。
- const pokePen=makePencilProp(.8,.55,M(limb));pokePen.position.set(0,-.405,-.115);pokePen.visible=false;armR.add(pokePen);
+ const pokePen=makePencilProp(.8,.55,M(limb));pokePen.name='pokePenProp';pokePen.position.set(0,-.405,-.115);pokePen.visible=false;armR.add(pokePen);
  return{root,head,torso:torsoPivot,armL,armR,legL,legR,footL,footR,pokePen,holdingPen:false,pokeAt:0,t:0,crouchMix:0,emo:null,heart:null,g:null};
 }
 const HEAD_YAW_LIMIT=.48;       // 左右約27.5度
@@ -3743,7 +3736,11 @@ function playEmote(a,k){
  if(k===3){a.heart=lbl('♥',64,64,56,'rgba(0,0,0,0)','#e53935');a.heart.scale.set(.6,.6,1);a.heart.position.y=2.4;a.g.add(a.heart)}
 }
 const selfG=new THREE.Group();let selfAv,selfBodyYaw=0;
-function rebuildSelf(){if(selfAv)selfG.remove(selfAv.root);selfAv=makeAvatar(mySkin,myCol);selfAv.g=selfG;selfG.add(selfAv.root)}
+function rebuildSelf(){
+ if(selfAv)selfG.remove(selfAv.root);
+ selfAv=makeAvatar(mySkin,myCol);selfAv.g=selfG;selfG.add(selfAv.root);
+ rebuildFirstPersonArmModel();
+}
 rebuildSelf();selfG.visible=false;scene.add(selfG);
 function toggleEmo(v){emoOpen=v===undefined?!emoOpen:v;$('emo').style.display=emoOpen?'flex':'none'}
 function emote(k){toggleEmo(false);playEmote(selfAv,k);Net.send({t:'emo',id:Net.id,k})}

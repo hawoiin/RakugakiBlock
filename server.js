@@ -32,7 +32,7 @@ const PORT = process.env.PORT || 3040;
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
 const VER = 15; // 胞子吐きの歩行状態を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
-const NATURAL_CAVE_VERSION = 4;
+const NATURAL_CAVE_VERSION = 5;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
 /** リバースプロキシの段数。直接公開なら 0（X-Forwarded-For を信じない） */
@@ -544,12 +544,49 @@ function makeNaturalCaveEditsV1(world) {
   }
   return edits;
 }
-function applyNaturalCave(world) {
+/* ---- 洞窟の環境要素は飾りメッシュではなく編集可能なボクセルとして配置 ---- */
+function makeNaturalCaveVoxelDetailGroups(){
+ const groups=[];
+ const add=(name,edits,guards)=>groups.push({name,edits,guards});
+ const nearby=(x,y,z,rx=1,ry=1,rz=1)=>{
+  const a=[];
+  for(let xx=x-rx;xx<=x+rx;xx++)for(let yy=y-ry;yy<=y+ry;yy++)for(let zz=z-rz;zz<=z+rz;zz++)
+   if(xx>=0&&xx<W&&yy>=0&&yy<H&&zz>=0&&zz<D)a.push(idx(xx,yy,zz));
+  return a;
+ };
+ // 上層の小さな水たまり。床セル自体を通常の水ブロック(ID 8)に置き換える。
+ const upperEdits=[],upperGuards=new Set();
+ for(const x of [14,15])for(const z of [10,11]){
+  upperEdits.push([x,8,z,8]);
+  for(const at of nearby(x,8,z,1,2,1))upperGuards.add(at);
+ }
+ add('upper-water-pool',upperEdits,[...upperGuards]);
+ // 下層の水たまり。水滴の着地点(x=47,z=13)は避ける。
+ const deepEdits=[],deepGuards=new Set();
+ for(const x of [45,46])for(const z of [12,13]){
+  deepEdits.push([x,3,z,8]);
+  for(const at of nearby(x,3,z,1,2,1))deepGuards.add(at);
+ }
+ add('deep-water-pool',deepEdits,[...deepGuards]);
+ // 天井に接続する石ブロック。独立した三角錐メッシュではなく、通常の破壊可能ブロック。
+ for(const [name,x,z] of [['deep-stalactite-east',48,13],['deep-stalactite-west',43,8]])
+  add(name,[[x,7,z,3]],nearby(x,7,z,1,1,1));
+ // 落石は通路の縁にある通常の石ブロック。中央の通路は塞がない位置。
+ for(const [name,x,z] of [['deep-rubble-west',42,9],['deep-rubble-east',48,9],['deep-rubble-south',47,14]])
+  add(name,[[x,4,z,3]],nearby(x,4,z,1,1,1));
+ return groups;
+}
+function applyNaturalCaveVoxelDetails(w){
+ for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)w[idx(x,y,z)]=b;
+}
+
+function applyNaturalCave(world, includeVoxelDetails = true) {
   // 生成前の地形から計画を作り、クライアントと同じ順序で洞窟を適用する。
   const deep = makeNaturalCaveDeepPlan(world);
   for (const [at, block] of makeNaturalCaveEdits(world)) world[at] = block;
   for (const [at, block] of makeNaturalCaveExtensionEdits(world)) world[at] = block;
   for (const [at, block] of deep.edits) world[at] = block;
+  if (includeVoxelDetails) applyNaturalCaveVoxelDetails(world);
 }
 function applyNaturalCaveSafely(world, baseline, previousVersion = 0) {
   const edits = makeNaturalCaveEdits(baseline);
@@ -751,6 +788,25 @@ function migrateStarterDrawingWalls(world) {
   let changed = 0;
   for (const at of positions) if (world[at] === 3) { world[at] = 5; changed++; }
   return changed;
+}
+
+// 既存ワールドでは、v4相当の洞窟と対象周辺が未編集のときだけ、実ブロックの環境要素を追加する。
+function applyNaturalCaveVoxelDetailsSafely(world, expectedBaseCave) {
+  const groups = makeNaturalCaveVoxelDetailGroups();
+  const eligible = [];
+  const unique = (list) => [...new Set(list)];
+  for (const group of groups) {
+    const cells = unique([...group.guards, ...group.edits.map(([x, y, z]) => idx(x, y, z))]);
+    if (cells.every((at) => world[at] === expectedBaseCave[at])) eligible.push(group);
+    else console.warn(`[cave] ${group.name} は周辺ブロックが編集済みのため移行を見送りました`);
+  }
+  // 全グループを先に判定し、近接する別グループの変更が判定に影響しないようにする。
+  let changed = 0;
+  for (const group of eligible) for (const [x, y, z, block] of group.edits) {
+    const at = idx(x, y, z);
+    if (world[at] !== block) { world[at] = block; changed++; }
+  }
+  return { changed, addedGroups: eligible.length, skippedGroups: groups.length - eligible.length };
 }
 
 function genTerrainNature(withCave = true) {
@@ -3009,10 +3065,19 @@ function loadLatestWorldSnap() {
       let caveMigrationChanged = false;
       if ((mainRoom.naturalCaveVersion || 0) < NATURAL_CAVE_VERSION) {
         if (mainRoom.worldTheme === 'nature') {
+          const previousCaveVersion = mainRoom.naturalCaveVersion || 0;
           const caveBaseline = genTerrainNature(false);
-          caveMigrationChanged = applyNaturalCaveSafely(mainRoom.world, caveBaseline, mainRoom.naturalCaveVersion || 0);
-          if (caveMigrationChanged) console.log('[cave] 既存の自然ワールドへ洞窟を追加しました');
-          else console.warn('[cave] 洞窟予定地に既存の変更があるため、建築を保護して洞窟追加を見送りました');
+          // v0-v3は構造の移行も必要。v4は洞窟構造が完成済みなので、再度掘削しない。
+          if (previousCaveVersion < 4) {
+            caveMigrationChanged = applyNaturalCaveSafely(mainRoom.world, caveBaseline, previousCaveVersion);
+          }
+          const expectedBaseCave = new Uint8Array(caveBaseline);
+          applyNaturalCave(expectedBaseCave, false);
+          const voxelDetails = applyNaturalCaveVoxelDetailsSafely(mainRoom.world, expectedBaseCave);
+          if (voxelDetails.changed) caveMigrationChanged = true;
+          console.log(`[cave] ブロック環境要素の移行: ${voxelDetails.changed}セルを追加、${voxelDetails.skippedGroups}グループを編集保護でスキップ`);
+          if (caveMigrationChanged) console.log('[cave] 既存の自然ワールドへ洞窟要素を追加しました');
+          else console.warn('[cave] 洞窟要素を追加できる未編集セルがありませんでした。既存ブロックを保持します');
         }
         mainRoom.naturalCaveVersion = NATURAL_CAVE_VERSION;
       }
