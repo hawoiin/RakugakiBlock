@@ -2957,45 +2957,61 @@ const pokePenGripGeo=new THREE.BoxGeometry(.068,.042,.038);
 const pokePenBodyMat=new THREE.MeshBasicMaterial({color:0xd2b366});
 const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
 
-// 一人称の手は独自モデルを作らず、三人称アバターの右腕・手のひら・ペンを複製して使う。
-// 形状と素材を共有するため、視点によって手の大きさや色・丸みが変わらない。
-const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;scene.add(firstPersonPenRig);
-let firstPersonArmModel=null;
-function rebuildFirstPersonArmModel(){
- if(firstPersonArmModel)firstPersonPenRig.remove(firstPersonArmModel);
- firstPersonArmModel=null;
- if(!selfAv||!selfAv.armR)return;
- firstPersonArmModel=selfAv.armR.clone(true);
- // 三人称の肩位置オフセットは捨て、肩から手先までの同一モデルをカメラ前に配置する。
- firstPersonArmModel.position.set(0,0,0);
- firstPersonArmModel.rotation.set(0,0,-.48);
- firstPersonArmModel.scale.set(1,1,1);
- const pen=firstPersonArmModel.getObjectByName('pokePenProp');if(pen)pen.visible=false;
- firstPersonPenRig.add(firstPersonArmModel);
-}
+// Minecraft風の一人称表示：画面右下から腕が入り、手に持ったペンが前方へ伸びる。
+// 三人称の関節グループを無理に流用せず、同じ寸法・角丸・色の一人称用前腕と手を
+// カメラ前に配置する。空の手も表示し、ペン選択時だけ手持ちペンを重ねる。
+const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;firstPersonPenRig.renderOrder=997;scene.add(firstPersonPenRig);
+const firstPersonPose=new THREE.Group();firstPersonPenRig.add(firstPersonPose);
+const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:myCol,depthTest:false,depthWrite:false});
+const firstPersonPenBodyMat=pokePenBodyMat.clone();firstPersonPenBodyMat.depthTest=false;firstPersonPenBodyMat.depthWrite=false;
+const firstPersonPenTipMat=pokePenTipMat.clone();firstPersonPenTipMat.depthTest=false;firstPersonPenTipMat.depthWrite=false;
+const firstPersonRoundedBox=(w,h,d,r)=>{
+ const g=new THREE.BoxGeometry(w,h,d,4,4,4),a=g.attributes.position;
+ const rr=Math.max(.012,Math.min(r,w*.28,h*.28,d*.28));
+ for(let i=0;i<a.count;i++){
+  const x=a.getX(i),y=a.getY(i),z=a.getZ(i);
+  const cx=Math.max(-w/2+rr,Math.min(w/2-rr,x));
+  const cy=Math.max(-h/2+rr,Math.min(h/2-rr,y));
+  const cz=Math.max(-d/2+rr,Math.min(d/2-rr,z));
+  const dx=x-cx,dy=y-cy,dz=z-cz,len=Math.hypot(dx,dy,dz);
+  if(len>1e-6)a.setXYZ(i,cx+dx/len*rr,cy+dy/len*rr,cz+dz/len*rr);
+ }
+ a.needsUpdate=true;g.computeVertexNormals();return g;
+};
+// アバター本体と同じ .18×.47×.18 の腕、同じ .145×.11×.14 の手のひらを使用。
+// 肩を画面外の右下へ逃がし、手が腕の上端につながって見えるように斜めに構える。
+const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.18,.47,.18,.045),firstPersonLimbMat);
+firstPersonArm.position.set(.52,-.49,-.72);firstPersonArm.rotation.z=.48;firstPersonArm.renderOrder=997;firstPersonPose.add(firstPersonArm);
+const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.11,.14,.03),firstPersonLimbMat);
+firstPersonHand.position.set(.411,-.283,-.68);firstPersonHand.rotation.z=.48;firstPersonHand.renderOrder=998;firstPersonPose.add(firstPersonHand);
+// ペンは手の手前に配置し、軸を画面中央寄りへ斜めに伸ばす。アイテム表示はMinecraft風に前景へ重ねる。
+const firstPersonPen=makePencilProp(.8,.55,firstPersonLimbMat);
+firstPersonPen.position.set(.395,-.283,-.59);firstPersonPen.rotation.z=-2.2;firstPersonPen.visible=false;
+firstPersonPen.traverse(o=>{if(!o.isMesh)return;if(o.material===pokePenBodyMat)o.material=firstPersonPenBodyMat;else if(o.material===pokePenTipMat)o.material=firstPersonPenTipMat;o.material.depthTest=false;o.material.depthWrite=false;o.material.needsUpdate=true;o.renderOrder=999;});
+firstPersonPose.add(firstPersonPen);
 function updateFirstPersonPenColor(){
- // 手・腕の材質は三人称アバターと共有し、スキン変更時は rebuildSelf() で一緒に再生成する。
+ firstPersonLimbMat.color.setHex((mySkin&&Number.isFinite(mySkin.limb))?mySkin.limb:myCol);
 }
 function updateFirstPersonPenView(){
  const held=isPen()&&cur!==0&&canPen();
  if(selfAv)selfAv.holdingPen=held;
- if(firstPersonArmModel){
-  const elapsed=selfAv&&selfAv.pokeAt?(performance.now()-selfAv.pokeAt)/360:2;
-  const pokeMix=elapsed>=0&&elapsed<1?Math.sin(Math.PI*elapsed):0;
-  // 通常時は自然に前へ構え、ペン突き中は同じ右腕モデルを前に伸ばす。
-  firstPersonArmModel.rotation.x=.12+pokeMix*.72;
-  firstPersonArmModel.rotation.z=-.48+pokeMix*.10;
-  const pen=firstPersonArmModel.getObjectByName('pokePenProp');
-  if(pen)pen.visible=held||pokeMix>.12;
- }
- firstPersonPenRig.visible=started&&viewMode===0&&(held||(selfAv&&selfAv.pokeAt&&performance.now()-selfAv.pokeAt<360))&&!menu&&!typing&&!phonePanelOpen;
- if(firstPersonPenRig.visible){
-  // 同一アバター部品をカメラ右下へ置く。肩から手までが画面端につながる配置。
-  const local=new THREE.Vector3(.34,-.025,-.62);
-  firstPersonPenRig.position.copy(local).applyQuaternion(cam.quaternion).add(cam.position);
+ const elapsed=selfAv&&selfAv.pokeAt?(performance.now()-selfAv.pokeAt)/360:2;
+ const pokeMix=elapsed>=0&&elapsed<1?Math.sin(Math.PI*elapsed):0;
+ const visible=started&&viewMode===0&&!menu&&!typing&&!phonePanelOpen;
+ firstPersonPenRig.visible=visible;
+ firstPersonPen.visible=visible&&(held||pokeMix>.12);
+ if(visible){
+  // Scene内のカメラ位置・回転へ追従。腕は画面右下から入り、歩行では小さく揺れ、突くと前へ出る。
+  firstPersonPenRig.position.copy(cam.position);
   firstPersonPenRig.quaternion.copy(cam.quaternion);
+  const speed=Math.hypot(me.v.x,me.v.z),moveBlend=clamp(speed/2.5,0,1);
+  const phase=(selfAv?selfAv.t:performance.now()*.001)*6;
+  const stride=Math.sin(phase);
+  firstPersonPose.position.set(stride*.010*moveBlend-.035*pokeMix,-Math.abs(stride)*.014*moveBlend+.010*pokeMix,-.12*pokeMix);
+  firstPersonPose.rotation.set(.075*pokeMix,0,stride*.012*moveBlend-.055*pokeMix);
  }
 }
+
 function setMyCol(c,sync){
  c=(c>>>0)&0xffffff;
  if(c===myCol&&!sync)return;
@@ -3739,7 +3755,7 @@ const selfG=new THREE.Group();let selfAv,selfBodyYaw=0;
 function rebuildSelf(){
  if(selfAv)selfG.remove(selfAv.root);
  selfAv=makeAvatar(mySkin,myCol);selfAv.g=selfG;selfG.add(selfAv.root);
- rebuildFirstPersonArmModel();
+ updateFirstPersonPenColor();
 }
 rebuildSelf();selfG.visible=false;scene.add(selfG);
 function toggleEmo(v){emoOpen=v===undefined?!emoOpen:v;$('emo').style.display=emoOpen?'flex':'none'}
