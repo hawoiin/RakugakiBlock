@@ -2962,9 +2962,9 @@ const pokePenTipMat=new THREE.MeshBasicMaterial({color:0x35322b});
 // カメラ前に配置する。空の手も表示し、ペン選択時だけ手持ちペンを重ねる。
 const firstPersonPenRig=new THREE.Group();firstPersonPenRig.visible=false;firstPersonPenRig.renderOrder=997;scene.add(firstPersonPenRig);
 const firstPersonPose=new THREE.Group();firstPersonPenRig.add(firstPersonPose);
-const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:myCol,depthTest:false,depthWrite:false});
-const firstPersonPenBodyMat=pokePenBodyMat.clone();firstPersonPenBodyMat.depthTest=false;firstPersonPenBodyMat.depthWrite=false;
-const firstPersonPenTipMat=pokePenTipMat.clone();firstPersonPenTipMat.depthTest=false;firstPersonPenTipMat.depthWrite=false;
+const firstPersonLimbMat=new THREE.MeshBasicMaterial({color:myCol,depthTest:true,depthWrite:true});
+const firstPersonPenBodyMat=pokePenBodyMat.clone();firstPersonPenBodyMat.depthTest=true;firstPersonPenBodyMat.depthWrite=true;
+const firstPersonPenTipMat=pokePenTipMat.clone();firstPersonPenTipMat.depthTest=true;firstPersonPenTipMat.depthWrite=true;
 const firstPersonRoundedBox=(w,h,d,r)=>{
  const g=new THREE.BoxGeometry(w,h,d,4,4,4),a=g.attributes.position;
  const rr=Math.max(.012,Math.min(r,w*.28,h*.28,d*.28));
@@ -2984,24 +2984,69 @@ const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.18,.47,.18,.045),firs
 firstPersonArm.position.set(.52,-.49,-.72);firstPersonArm.rotation.z=.48;firstPersonArm.renderOrder=997;firstPersonPose.add(firstPersonArm);
 const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.11,.14,.03),firstPersonLimbMat);
 firstPersonHand.position.set(.411,-.283,-.68);firstPersonHand.rotation.z=.48;firstPersonHand.renderOrder=998;firstPersonPose.add(firstPersonHand);
-// ペンは手の手前に配置し、軸を画面中央寄りへ斜めに伸ばす。アイテム表示はMinecraft風に前景へ重ねる。
-const firstPersonPen=makePencilProp(.8,.55,firstPersonLimbMat);
-firstPersonPen.position.set(.395,-.283,-.59);firstPersonPen.rotation.z=-2.2;firstPersonPen.visible=false;
-firstPersonPen.traverse(o=>{if(!o.isMesh)return;if(o.material===pokePenBodyMat)o.material=firstPersonPenBodyMat;else if(o.material===pokePenTipMat)o.material=firstPersonPenTipMat;o.material.depthTest=false;o.material.depthWrite=false;o.material.needsUpdate=true;o.renderOrder=999;});
+// 一人称の手持ちアイテム。ブロックはワールドと同じブロックテクスチャ／面の色を使い、
+// 小さく斜めに構えて右手の前に表示する。アイテムを別UIとして貼らず、深度テストを通す。
+const firstPersonPen=makePencilProp(.8,0,firstPersonLimbMat);
+firstPersonPen.position.set(.395,-.283,-.59);
+firstPersonPen.rotation.set(1.95,0,.16);firstPersonPen.visible=false;
+firstPersonPen.traverse(o=>{if(!o.isMesh)return;if(o.material===pokePenBodyMat)o.material=firstPersonPenBodyMat;else if(o.material===pokePenTipMat)o.material=firstPersonPenTipMat;o.material.depthTest=true;o.material.depthWrite=true;o.material.needsUpdate=true;o.renderOrder=999;});
 firstPersonPose.add(firstPersonPen);
+const firstPersonHeldBlockSolidMat=wm.material.clone();
+firstPersonHeldBlockSolidMat.depthTest=true;firstPersonHeldBlockSolidMat.depthWrite=true;
+const firstPersonHeldBlockTransMat=new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:.4,depthTest:true,depthWrite:false,side:THREE.DoubleSide});
+const firstPersonHeldBlockSlimeMat=slimeMaterial.clone();
+firstPersonHeldBlockSlimeMat.depthTest=true;firstPersonHeldBlockSlimeMat.depthWrite=false;
+const firstPersonHeldBlock=new THREE.Mesh(new THREE.BufferGeometry(),firstPersonHeldBlockSolidMat);
+firstPersonHeldBlock.name='first-person-held-block';
+// ブロックは右手の手のひらを一部隠す位置に置き、表面が見えるよう三軸を少し傾ける。
+firstPersonHeldBlock.position.set(.325,-.325,-.585);
+firstPersonHeldBlock.scale.setScalar(.205);
+firstPersonHeldBlock.rotation.set(.32,.48,.22);
+firstPersonHeldBlock.visible=false;firstPersonHeldBlock.renderOrder=999;firstPersonPose.add(firstPersonHeldBlock);
+let firstPersonHeldBlockKey='';
+function buildFirstPersonHeldBlock(blockIndex){
+ const blockId=blockIndex+1,P=[],C=[],U=[],I=[];
+ for(let f=0;f<6;f++){
+  const trans=blockId===8||blockId===10;
+  if(blockId===14){
+   const variant=(blockIndex*7+f*3+5)&15;
+   quadSlime(P,C,U,I,0,0,0,f,SH[f],variant);
+  }else if(blockId===1&&(f===0||f===1||f===4||f===5)){
+   const uv=blockFaceUV(blockId,f);
+   quadVerticalRange(P,C,U,I,0,0,0,f,BC[1],SH[f],uv,0,.16,0);
+   quadVerticalRange(P,C,U,I,0,0,0,f,BC[2],SH[f],uv,.16,1,0);
+  }else{
+   const baseCol=BC[blockId]||BC[3];
+   quad(P,C,trans?null:U,I,0,0,0,f,baseCol,SH[f],trans?null:blockFaceUV(blockId,f),0);
+  }
+ }
+ // ワールドのブロック面は [0,1] の座標で構築するため、手持ちモデルでは中心を原点にする。
+ for(let i=0;i<P.length;i+=3){P[i]-=.5;P[i+1]-=.5;P[i+2]-=.5;}
+ const g=new THREE.BufferGeometry();
+ g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+ g.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
+ if(U.length)g.setAttribute('uv',new THREE.Float32BufferAttribute(U,2));
+ g.setIndex(I);g.computeBoundingSphere();
+ firstPersonHeldBlock.geometry.dispose();firstPersonHeldBlock.geometry=g;
+ firstPersonHeldBlock.material=blockId===14?firstPersonHeldBlockSlimeMat:(blockId===8||blockId===10?firstPersonHeldBlockTransMat:firstPersonHeldBlockSolidMat);
+ firstPersonHeldBlockKey=`${blockIndex}:${BH[blockIndex]}:${worldTheme}`;
+}
 function updateFirstPersonPenColor(){
  firstPersonLimbMat.color.setHex((mySkin&&Number.isFinite(mySkin.limb))?mySkin.limb:myCol);
 }
 function updateFirstPersonPenView(){
  const held=isPen()&&cur!==0&&canPen();
  if(selfAv)selfAv.holdingPen=held;
+ const selectedBlock=!isPen()&&Number.isInteger(tool)&&tool>=0&&tool<BN.length?tool:-1;
+ if(selectedBlock>=0){const key=`${selectedBlock}:${BH[selectedBlock]}:${worldTheme}`;if(key!==firstPersonHeldBlockKey)buildFirstPersonHeldBlock(selectedBlock)}
  const elapsed=selfAv&&selfAv.pokeAt?(performance.now()-selfAv.pokeAt)/360:2;
  const pokeMix=elapsed>=0&&elapsed<1?Math.sin(Math.PI*elapsed):0;
  const visible=started&&viewMode===0&&!menu&&!typing&&!phonePanelOpen;
  firstPersonPenRig.visible=visible;
  firstPersonPen.visible=visible&&(held||pokeMix>.12);
+ firstPersonHeldBlock.visible=visible&&selectedBlock>=0;
  if(visible){
-  // Scene内のカメラ位置・回転へ追従。腕は画面右下から入り、歩行では小さく揺れ、突くと前へ出る。
+  // カメラに追従する一人称リグ。腕・手・選択中アイテムは同じ姿勢の揺れを共有する。
   firstPersonPenRig.position.copy(cam.position);
   firstPersonPenRig.quaternion.copy(cam.quaternion);
   const speed=Math.hypot(me.v.x,me.v.z),moveBlend=clamp(speed/2.5,0,1);
