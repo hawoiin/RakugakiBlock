@@ -32,7 +32,7 @@ const PORT = process.env.PORT || 3040;
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || process.env.ADMIN_PASS || '').trim();
 const MAX_PLAYERS = 32; // 単一部屋の人数上限
 const VER = 15; // 胞子吐きの歩行状態を含むクライアント互換用プロトコル番号。洞窟バージョンは別管理
-const NATURAL_CAVE_VERSION = 5;
+const NATURAL_CAVE_VERSION = 6;
 /** クライアントのブロックIDに合わせる（0=空気、1..14=設置可能） */
 const MAX_BLOCK_ID = Number(process.env.MAX_BLOCK_ID) || 14; // 1..13 + スライム=14
 /** リバースプロキシの段数。直接公開なら 0（X-Forwarded-For を信じない） */
@@ -454,6 +454,45 @@ function makeNaturalCaveExtensionEdits(w){
 }
 
 
+// v20.154: 壁の金鉱脈を掘ると見つかる隠し通路。装飾ではなく通常ブロックとして生成する。
+function makeNaturalCaveSecretPassagePlan(w){
+ const edits=new Map(),guards=new Set();
+ const inside=(x,y,z)=>x>=0&&x<W&&y>=0&&y<H&&z>=0&&z<D;
+ const guard=(x,y,z)=>{if(inside(x,y,z))guards.add(idx(x,y,z))};
+ const groundTop=(x,z)=>{for(let y=H-1;y>=0;y--){const b=w[idx(x,y,z)];if(b===1||b===2||b===3||b===7)return y}return -1};
+ const carveColumn=(x,z,desiredRoof)=>{
+  const top=groundTop(x,z);if(top<12)return false;
+  const roof=Math.min(desiredRoof,top-2);if(roof<10)return false;
+  // 床と、空洞・天井・地表までの岩盤を移行時の保護対象にする。
+  for(let y=8;y<=top;y++)guard(x,y,z);
+  for(let y=9;y<=roof;y++)edits.set(idx(x,y,z),0);
+  return true;
+ };
+ // 金鉱脈の裏へ続く2マス幅の短い通路。既存の上層床(y=8)は残す。
+ for(let x=38;x<=40;x++)for(const z of [9,10]){
+  if(!carveColumn(x,z,11))return {edits:new Map(),guards:new Set()};
+ }
+ // 通路の奥は少し幅が広がる不規則な小空洞。低い天井と高い部分を混ぜる。
+ let chamberCells=0;
+ for(let x=40;x<=44;x++)for(let z=8;z<=11;z++){
+  const r=((x-42.05)/2.25)**2+((z-9.45)/1.65)**2;
+  const wobble=(noise2(x*1.73+7,z*1.31+19)-.5)*.12;
+  if(r>1+wobble)continue;
+  const roof=11+Math.floor(2*(1-Math.min(r,1)));
+  if(!carveColumn(x,z,roof)){if(x===40&&(z===9||z===10))return {edits:new Map(),guards:new Set()};continue}
+  chamberCells++;
+ }
+ if(chamberCells<7)return {edits:new Map(),guards:new Set()};
+ // 入口の金鉱脈は不規則な塊にする。y=9/10,z=9を掘ると人が通れる高さが開く。
+ for(const [x,y,z] of [[37,9,9],[37,9,10],[37,10,9],[37,11,9],[37,10,10]])edits.set(idx(x,y,z),12);
+ // 入口と空洞のまわりを含めてチェックし、保存済み建築・採掘跡を上書きしない。
+ for(let x=37;x<=44;x++)for(let z=8;z<=11;z++){
+  const top=groundTop(x,z);if(top<0)continue;
+  for(let y=8;y<=top;y++)guard(x,y,z);
+ }
+ return {edits,guards};
+}
+
 // v20.141 洞窟の下層。既存洞窟の床下を通る下り階段と地下広間を追加する。
 // 編集対象の床・天井も guard に記録し、保存済みワールドの建築があれば移行を中止できる。
 function makeNaturalCaveDeepPlan(w){
@@ -580,12 +619,13 @@ function applyNaturalCaveVoxelDetails(w){
  for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)w[idx(x,y,z)]=b;
 }
 
-function applyNaturalCave(world, includeVoxelDetails = true) {
+function applyNaturalCave(world, includeVoxelDetails = true, includeSecretPassage = true) {
   // 生成前の地形から計画を作り、クライアントと同じ順序で洞窟を適用する。
   const deep = makeNaturalCaveDeepPlan(world);
   for (const [at, block] of makeNaturalCaveEdits(world)) world[at] = block;
   for (const [at, block] of makeNaturalCaveExtensionEdits(world)) world[at] = block;
   for (const [at, block] of deep.edits) world[at] = block;
+  if (includeSecretPassage) for (const [at, block] of makeNaturalCaveSecretPassagePlan(world).edits) world[at] = block;
   if (includeVoxelDetails) applyNaturalCaveVoxelDetails(world);
 }
 function applyNaturalCaveSafely(world, baseline, previousVersion = 0) {
@@ -788,6 +828,24 @@ function migrateStarterDrawingWalls(world) {
   let changed = 0;
   for (const at of positions) if (world[at] === 3) { world[at] = 5; changed++; }
   return changed;
+}
+
+// 既存ワールドの隠し通路は、入口・通路・天井の全予定地が未編集のときだけ追加する。
+function applyNaturalCaveSecretPassageSafely(world, expectedBaseCave) {
+  const plan = makeNaturalCaveSecretPassagePlan(expectedBaseCave);
+  if (!plan.edits.size) return { changed: false, skipped: true, cells: 0 };
+  const cells = new Set([...plan.guards, ...plan.edits.keys()]);
+  for (const at of cells) {
+    if (world[at] !== expectedBaseCave[at]) {
+      console.warn('[cave] 隠し通路は入口・予定地が編集済みのため移行を見送りました');
+      return { changed: false, skipped: true, cells: 0 };
+    }
+  }
+  let changed = 0;
+  for (const [at, block] of plan.edits) {
+    if (world[at] !== block) { world[at] = block; changed++; }
+  }
+  return { changed: changed > 0, skipped: false, cells: changed };
 }
 
 // 既存ワールドでは、v4相当の洞窟と対象周辺が未編集のときだけ、実ブロックの環境要素を追加する。
@@ -3072,7 +3130,11 @@ function loadLatestWorldSnap() {
             caveMigrationChanged = applyNaturalCaveSafely(mainRoom.world, caveBaseline, previousCaveVersion);
           }
           const expectedBaseCave = new Uint8Array(caveBaseline);
-          applyNaturalCave(expectedBaseCave, false);
+          // version 5 までの地形だけを再現し、その後に隠し通路を安全に移行する。
+          applyNaturalCave(expectedBaseCave, false, false);
+          const secretPassage = applyNaturalCaveSecretPassageSafely(mainRoom.world, expectedBaseCave);
+          if (secretPassage.changed) caveMigrationChanged = true;
+          console.log(`[cave] 隠し通路の移行: ${secretPassage.cells}セルを追加${secretPassage.skipped ? '（編集保護で見送り）' : ''}`);
           const voxelDetails = applyNaturalCaveVoxelDetailsSafely(mainRoom.world, expectedBaseCave);
           if (voxelDetails.changed) caveMigrationChanged = true;
           console.log(`[cave] ブロック環境要素の移行: ${voxelDetails.changed}セルを追加、${voxelDetails.skippedGroups}グループを編集保護でスキップ`);

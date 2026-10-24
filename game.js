@@ -357,6 +357,45 @@ function makeNaturalCaveExtensionEdits(w){
  return edits;
 }
 
+// v20.154: 壁の金鉱脈を掘ると見つかる隠し通路。装飾ではなく通常ブロックとして生成する。
+function makeNaturalCaveSecretPassagePlan(w){
+ const edits=new Map(),guards=new Set();
+ const inside=(x,y,z)=>x>=0&&x<W&&y>=0&&y<H&&z>=0&&z<D;
+ const guard=(x,y,z)=>{if(inside(x,y,z))guards.add(idx(x,y,z))};
+ const groundTop=(x,z)=>{for(let y=H-1;y>=0;y--){const b=w[idx(x,y,z)];if(b===1||b===2||b===3||b===7)return y}return -1};
+ const carveColumn=(x,z,desiredRoof)=>{
+  const top=groundTop(x,z);if(top<12)return false;
+  const roof=Math.min(desiredRoof,top-2);if(roof<10)return false;
+  // 床と、空洞・天井・地表までの岩盤を移行時の保護対象にする。
+  for(let y=8;y<=top;y++)guard(x,y,z);
+  for(let y=9;y<=roof;y++)edits.set(idx(x,y,z),0);
+  return true;
+ };
+ // 金鉱脈の裏へ続く2マス幅の短い通路。既存の上層床(y=8)は残す。
+ for(let x=38;x<=40;x++)for(const z of [9,10]){
+  if(!carveColumn(x,z,11))return {edits:new Map(),guards:new Set()};
+ }
+ // 通路の奥は少し幅が広がる不規則な小空洞。低い天井と高い部分を混ぜる。
+ let chamberCells=0;
+ for(let x=40;x<=44;x++)for(let z=8;z<=11;z++){
+  const r=((x-42.05)/2.25)**2+((z-9.45)/1.65)**2;
+  const wobble=(noise2(x*1.73+7,z*1.31+19)-.5)*.12;
+  if(r>1+wobble)continue;
+  const roof=11+Math.floor(2*(1-Math.min(r,1)));
+  if(!carveColumn(x,z,roof)){if(x===40&&(z===9||z===10))return {edits:new Map(),guards:new Set()};continue}
+  chamberCells++;
+ }
+ if(chamberCells<7)return {edits:new Map(),guards:new Set()};
+ // 入口の金鉱脈は不規則な塊にする。y=9/10,z=9を掘ると人が通れる高さが開く。
+ for(const [x,y,z] of [[37,9,9],[37,9,10],[37,10,9],[37,11,9],[37,10,10]])edits.set(idx(x,y,z),12);
+ // 入口と空洞のまわりを含めてチェックし、保存済み建築・採掘跡を上書きしない。
+ for(let x=37;x<=44;x++)for(let z=8;z<=11;z++){
+  const top=groundTop(x,z);if(top<0)continue;
+  for(let y=8;y<=top;y++)guard(x,y,z);
+ }
+ return {edits,guards};
+}
+
 // v20.141 洞窟の下層。既存洞窟の床下を通る下り階段と地下広間を追加する。
 // 編集対象の床・天井も guard に記録し、保存済みワールドの建築があれば移行を中止できる。
 function makeNaturalCaveDeepPlan(w){
@@ -415,7 +454,7 @@ function makeNaturalCaveDeepPlan(w){
 function makeNaturalCaveDeepEdits(w){return makeNaturalCaveDeepPlan(w).edits;}
 
 function refreshNaturalCaveWallCells(w=world){
-  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w),...makeNaturalCaveDeepEdits(w)]);for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)planned.set(idx(x,y,z),b);
+  naturalCaveWallCells.clear();naturalCaveAccentCells.clear();const planned=new Map([...makeNaturalCaveEdits(w),...makeNaturalCaveExtensionEdits(w),...makeNaturalCaveDeepEdits(w),...makeNaturalCaveSecretPassagePlan(w).edits]);for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)planned.set(idx(x,y,z),b);
   for(const [at,b] of planned){
    if((b===6||b===12||b===13)&&w[at]===b)naturalCaveAccentCells.add(at);
    if(b!==0||w[at]!==0)continue;
@@ -462,11 +501,12 @@ function applyNaturalCaveVoxelDetails(w){
  for(const group of makeNaturalCaveVoxelDetailGroups())for(const [x,y,z,b] of group.edits)w[idx(x,y,z)]=b;
 }
 
-function applyNaturalCave(w,trackVisual=(w===world),includeVoxelDetails=true){
+function applyNaturalCave(w,trackVisual=(w===world),includeVoxelDetails=true,includeSecretPassage=true){
  const deep=makeNaturalCaveDeepPlan(w);
  const edits=makeNaturalCaveEdits(w);for(const [at,b] of edits)w[at]=b;
  const extension=makeNaturalCaveExtensionEdits(w);for(const [at,b] of extension)w[at]=b;
  for(const [at,b] of deep.edits)w[at]=b;
+ if(includeSecretPassage)for(const [at,b] of makeNaturalCaveSecretPassagePlan(w).edits)w[at]=b;
  if(includeVoxelDetails)applyNaturalCaveVoxelDetails(w);
  if(trackVisual)refreshNaturalCaveWallCells(w);
  return edits;
@@ -763,7 +803,7 @@ function makeCaveBat(def){
  const left=new THREE.Group();left.position.set(-.055,.025,0);root.add(left);const lw=new THREE.Mesh(caveBatWingGeometry,caveBatWingMaterial);lw.position.z=.012;left.add(lw);
  const right=new THREE.Group();right.position.set(.055,.025,0);right.scale.x=-1;root.add(right);const rw=new THREE.Mesh(caveBatWingGeometry,caveBatWingMaterial);rw.position.z=.012;right.add(rw);
  root.position.set(def.x,def.y,def.z);root.userData.wings=[left,right];
- const bat={root,wings:[left,right],home:new THREE.Vector3(def.x,def.y,def.z),phase:def.phase,fleeAt:0,cooldownUntil:0,valid:()=>get(def.xCell,def.floorY,def.zCell)!==0&&get(def.xCell,def.airY,def.zCell)===0&&get(def.xCell,def.ceilingY,def.zCell)!==0};
+ const bat={root,wings:[left,right],home:new THREE.Vector3(def.x,def.y,def.z),fleeFrom:new THREE.Vector3(def.x,def.y,def.z),phase:def.phase,fleeAt:0,cooldownUntil:0,valid:()=>get(def.xCell,def.floorY,def.zCell)!==0&&get(def.xCell,def.airY,def.zCell)===0&&get(def.xCell,def.ceilingY,def.zCell)!==0};
  registerCaveSite(root,bat.valid);caveBats.push(bat);return bat;
 }
 // 水滴は天井のブロックから落ち、床に触れると波紋が出る。ブロック変更時は天井・床を再確認する。
@@ -778,6 +818,16 @@ addCaveDrip({x:45.35,z:4.45,top:7.73,bottom:4.04,floorY:3,airY:4,ceilingY:8,phas
 ].forEach(makeCaveBat);
 function setCaveAmbienceTheme(theme){caveAmbienceGroup.visible=theme==='nature';caveSiteCheckAt=0}
 setCaveAmbienceTheme(worldTheme);
+// ブロックを壊す音にコウモリが反応する。通常のブロック変更イベントを使うため同期追加は不要。
+function notifyCaveBlockNoise(x,y,z,now=performance.now()){
+ if(!caveAmbienceGroup.visible)return;
+ const source=new THREE.Vector3(x+.5,y+.5,z+.5);
+ for(const bat of caveBats){
+  if(!bat.root.visible||bat.fleeAt||now<bat.cooldownUntil)continue;
+  const dx=bat.home.x-source.x,dz=bat.home.z-source.z,dy=bat.home.y-source.y;
+  if(dx*dx+dz*dz<=5.2*5.2&&Math.abs(dy)<8){bat.fleeFrom.copy(source);bat.fleeAt=now;}
+ }
+}
 function updateCaveAmbience(dt,now){
  if(!caveAmbienceGroup.visible)return;
  if(now>=caveSiteCheckAt){caveSiteCheckAt=now+1200;for(const site of caveAmbienceSites)site.object.visible=!!site.valid()}
@@ -795,13 +845,18 @@ function updateCaveAmbience(dt,now){
  for(const bat of caveBats){
   if(!bat.root.visible)continue;
   if(!bat.fleeAt&&now>=bat.cooldownUntil){
-   let disturb=false;
-   for(const p of playerPoints){const dx=p.x-bat.home.x,dz=p.z-bat.home.z,dy=bat.home.y-(p.y+1.1);if(dx*dx+dz*dz<3.0*3.0&&Math.abs(dy)<6.2){disturb=true;break}}
-   if(disturb)bat.fleeAt=now;
+   let disturbedBy=null;
+   for(const p of playerPoints){const dx=p.x-bat.home.x,dz=p.z-bat.home.z,dy=bat.home.y-(p.y+1.1);if(dx*dx+dz*dz<3.0*3.0&&Math.abs(dy)<6.2){disturbedBy=p;break}}
+   if(disturbedBy){bat.fleeFrom.copy(disturbedBy);bat.fleeAt=now;}
   }
   let flight=0;
   if(bat.fleeAt){flight=(now-bat.fleeAt)/3200;if(flight>=1){bat.fleeAt=0;bat.cooldownUntil=now+9500;bat.root.position.copy(bat.home);flight=0}else{
-    const envelope=Math.sin(Math.PI*flight);bat.root.position.set(bat.home.x+Math.sin(flight*7+bat.phase)*.42*envelope,bat.home.y+.68*envelope,bat.home.z+Math.cos(flight*6+bat.phase)*.38*envelope);
+    const awayX=bat.home.x-bat.fleeFrom.x,awayZ=bat.home.z-bat.fleeFrom.z;
+    const len=Math.hypot(awayX,awayZ),dx=len>.001?awayX/len:Math.cos(bat.phase),dz=len>.001?awayZ/len:Math.sin(bat.phase);
+    const moveT=flight<.56?flight/.56:1-(flight-.56)/.44;
+    const smooth=moveT*moveT*(3-2*moveT),distance=1.45*smooth,envelope=Math.sin(Math.PI*flight);
+    const side=Math.sin(flight*10+bat.phase)*.2*envelope;
+    bat.root.position.set(bat.home.x+dx*distance-dz*side,bat.home.y+.72*envelope,bat.home.z+dz*distance+dx*side);
    }}
   const flap=flight?Math.sin(t*36+bat.phase)*.62:Math.sin(t*2.5+bat.phase)*.06;
   bat.wings[0].rotation.z=flap;bat.wings[1].rotation.z=-flap;
@@ -1730,8 +1785,10 @@ function resetPaint(){
 function setBlock(x,y,z,b,local){
  if(x<0||y<0||z<0||x>=W||y>=H||z>=D)return;
  if(local&&!canBlk())return;
+ const blockAt=idx(x,y,z),oldBlock=world[blockAt];
  if(!b)clearBlockPaint(x,y,z);
- world[idx(x,y,z)]=b;
+ world[blockAt]=b;
+ if(oldBlock!==0&&b===0)notifyCaveBlockNoise(x,y,z);
  wDirty=true;saveDirty=true;
  if(x<=50&&y>=3&&y<=18&&z>=1&&z<=17)refreshNaturalCaveWallCells(world);
  // ブロックの変更で表示状態が変わり得る、隣接する落書き面だけ再構築対象にする。
@@ -2978,12 +3035,15 @@ const firstPersonRoundedBox=(w,h,d,r)=>{
  }
  a.needsUpdate=true;g.computeVertexNormals();return g;
 };
-// アバターの腕はそのまま維持し、手のひらだけを少し細く・低くして、
-// ペン先が手の輪郭に隠れにくい握り位置に微調整する。ペンの位置・角度は変更しない。
+// 一人称の手は縮めず、三人称の手に近い大きさへ戻す。ペンの軸は移動させず、
+// カメラ側に小さな親指のパッドを重ねて、手を貫通する棒ではなく「握っている」接点を作る。
 const firstPersonArm=new THREE.Mesh(firstPersonRoundedBox(.18,.47,.18,.045),firstPersonLimbMat);
 firstPersonArm.position.set(.52,-.49,-.72);firstPersonArm.rotation.z=.48;firstPersonArm.renderOrder=997;firstPersonPose.add(firstPersonArm);
-const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.132,.092,.112,.028),firstPersonLimbMat);
-firstPersonHand.position.set(.425,-.298,-.68);firstPersonHand.rotation.z=.48;firstPersonHand.renderOrder=998;firstPersonPose.add(firstPersonHand);
+const firstPersonHand=new THREE.Mesh(firstPersonRoundedBox(.145,.11,.14,.03),firstPersonLimbMat);
+firstPersonHand.position.set(.411,-.283,-.68);firstPersonHand.rotation.z=.48;firstPersonHand.renderOrder=998;firstPersonPose.add(firstPersonHand);
+const firstPersonPenThumb=new THREE.Mesh(firstPersonRoundedBox(.048,.038,.026,.012),firstPersonLimbMat);
+firstPersonPenThumb.position.set(.407,-.254,-.604);firstPersonPenThumb.rotation.z=-.24;firstPersonPenThumb.renderOrder=1000;firstPersonPose.add(firstPersonPenThumb);
+firstPersonPenThumb.visible=false;
 // 一人称の手持ちアイテム。ブロックはワールドと同じブロックテクスチャ／面の色を使い、
 // 小さく斜めに構えて右手の前に表示する。アイテムを別UIとして貼らず、深度テストを通す。
 const firstPersonPen=makePencilProp(.8,0,firstPersonLimbMat);
@@ -3044,6 +3104,7 @@ function updateFirstPersonPenView(){
  const visible=started&&viewMode===0&&!menu&&!typing&&!phonePanelOpen;
  firstPersonPenRig.visible=visible;
  firstPersonPen.visible=visible&&(held||pokeMix>.12);
+ firstPersonPenThumb.visible=visible&&(held||pokeMix>.12);
  firstPersonHeldBlock.visible=visible&&selectedBlock>=0;
  if(visible){
   // カメラに追従する一人称リグ。腕・手・選択中アイテムは同じ姿勢の揺れを共有する。

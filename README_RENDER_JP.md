@@ -1,4 +1,4 @@
-# らくがきブロック v20.142 — Render公開手順
+# らくがきブロック v20.154 — Render公開手順
 
 このZIPは、Node.js + WebSocketサーバーを Render の Web Service として公開するための設定を追加したものです。ゲーム本体は `index.html`、`game.js`、`phone-game.js` などを同じフォルダに置く従来構成です。
 
